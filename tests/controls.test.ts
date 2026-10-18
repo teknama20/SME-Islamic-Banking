@@ -9,6 +9,7 @@ import { createCase, decideApproval, decideClearance, submitCase } from "../src/
 import { requestSigningOtp, signDocument } from "../src/lib/engine/documents";
 import { SHARIAH_REVIEW_CHECKLIST, completeAction, shariahReview, submitEvidence, verifyEvidence } from "../src/lib/engine/execution";
 import { actor, fixture } from "./helpers";
+import { applyGuards } from "../scripts/db-guards.mjs";
 
 const M = 1_000_000;
 
@@ -152,22 +153,32 @@ describe("signing & execution controls", () => {
 
 describe("tamper evidence", () => {
   it("database refuses to alter audit events, signatures or executed text", async () => {
-    await expect(db.$executeRawUnsafe(`UPDATE "AuditEvent" SET "summary" = 'edited'`)).rejects.toThrow(/append-only/);
-    await expect(db.$executeRawUnsafe(`DELETE FROM "Signature"`)).rejects.toThrow(/append-only/);
-    await expect(db.$executeRawUnsafe(`UPDATE "Document" SET "content" = 'forged'`)).rejects.toThrow(/immutable/);
+    await expect(db.$executeRawUnsafe("UPDATE `AuditEvent` SET `summary` = 'edited'")).rejects.toThrow(/append-only/);
+    await expect(db.$executeRawUnsafe("DELETE FROM `Signature`")).rejects.toThrow(/append-only/);
+    await expect(db.$executeRawUnsafe("UPDATE `Document` SET `content` = 'forged'")).rejects.toThrow(/immutable/);
+  });
+
+  it("concurrent activity keeps a single unbroken hash chain", async () => {
+    const f = await fixture();
+    const a = await actor("rm.ali");
+    const { auditNow } = await import("../src/lib/audit");
+    await Promise.all(Array.from({ length: 25 }, (_, i) => auditNow(a, { eventType: "CONCURRENCY_PROBE", action: "VIEW", summary: `probe ${i}` })));
+    const v = await verifyChain(f.tenant.id);
+    expect(v.ok).toBe(true);
+    expect(await db.auditEvent.count({ where: { tenantId: f.tenant.id, eventType: "CONCURRENCY_PROBE" } })).toBe(25);
   });
 
   it("hash chain detects edits made by bypassing the triggers", async () => {
     const f = await fixture();
     expect((await verifyChain(f.tenant.id)).ok).toBe(true);
-    await db.$executeRawUnsafe(`DROP TRIGGER "AuditEvent_no_update"`);
+    await db.$executeRawUnsafe("DROP TRIGGER `AuditEvent_no_update`");
     try {
-      await db.$executeRawUnsafe(`UPDATE "AuditEvent" SET "summary" = 'forged' WHERE "tenantId" = ? AND "seq" = 2`, f.tenant.id);
+      await db.$executeRawUnsafe("UPDATE `AuditEvent` SET `summary` = 'forged' WHERE `tenantId` = ? AND `seq` = 2", f.tenant.id);
       const v = await verifyChain(f.tenant.id);
       expect(v.ok).toBe(false);
       expect(v.brokenAtSeq).toBe(2);
     } finally {
-      await db.$executeRawUnsafe(`CREATE TRIGGER "AuditEvent_no_update" BEFORE UPDATE ON "AuditEvent" BEGIN SELECT RAISE(ABORT, 'AuditEvent is append-only'); END;`);
+      await applyGuards(db);
     }
     expect(GENESIS_HASH).toHaveLength(64);
   });

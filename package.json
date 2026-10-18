@@ -9,11 +9,11 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset --force",
+    "db:migrate": "prisma migrate dev && node scripts/db-guards.mjs",
     "db:seed": "prisma db seed",
-    "setup": "npm install && prisma migrate reset --force",
-    "docs:workflows": "tsx scripts/generate-workflow-doc.ts"
+    "setup": "npm install && prisma migrate deploy && node scripts/db-guards.mjs && prisma db seed",
+    "docs:workflows": "tsx scripts/generate-workflow-doc.ts",
+    "db:guards": "node scripts/db-guards.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -48,17 +48,22 @@ The full product-by-product transaction workflows and the stakeholder sign-off a
 
 ## Quick start
 
-Requirements: Node.js 20+ (tested on 26).
+Requirements: Node.js 20.9+ and MySQL 8 / MariaDB 10.6+ (on macOS: `brew install mariadb && brew services start mariadb`).
 
 ```bash
-npm install
-cp .env.example .env            # then set MASTER_KEY to a long random secret
-npx prisma migrate deploy       # creates prisma/dev.db (SQLite) with append-only triggers
-npm run db:seed                 # two tenants, 20+ users, 3 SMEs, 4 demo cases
-npm run dev                     # http://localhost:3000
+# one-time: databases and an app user (test database name must end with _test)
+mariadb -u root -e "CREATE DATABASE sme_dev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  CREATE DATABASE sme_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  CREATE USER 'sme'@'127.0.0.1' IDENTIFIED BY 'choose-a-password';
+  GRANT ALL ON \`sme\\_%\`.* TO 'sme'@'127.0.0.1';
+  GRANT ALL ON \`prisma\\_migrate\\_shadow\\_db\\_%\`.* TO 'sme'@'127.0.0.1';"
+
+cp .env.example .env    # set DATABASE_URL (that user/password) and a long random MASTER_KEY
+npm run setup           # install, migrate, apply append-only triggers, load demo data
+npm run dev             # http://localhost:3000
 ```
 
-Sign in with bank code **IBP**, any demo user below, and password **`Bank@12345`**. The OTP is shown on screen, because the demo tenant uses `otpDelivery: "screen"`. Switch it to the SMS gateway under *Administration*.
+Sign in with bank code **IBP**, any demo user below, and password **`Bank@12345`**. The OTP is shown on screen (the bank has no SMS gateway yet; `otpDelivery: "screen"`). Switch it to SMS under *Administration* once a gateway is connected.
 
 | Username | Role | | Username | Role |
 |---|---|---|---|---|
@@ -78,26 +83,30 @@ The seed leaves cases in different states so you can see each part of the lifecy
 - **SME-2026-00003**: Murabaha, under review. RCAD has cleared and Credit is pending.
 - **SME-2026-00004**: Istisna, still a draft. RCAD must clear the customer's KYC first.
 
-To rebuild the demo database from scratch, run `npm run db:reset`. **This deletes all local data.**
+## Hosted demo (Hostinger)
+
+The app runs on Hostinger Node.js hosting with Hostinger's managed MySQL. Each build runs `scripts/prepare-db.mjs` (when `PREPARE_DB=1`), which applies migrations and the append-only triggers, and loads demo data only into an empty database (`SEED_DEMO=1`). Environment variables on the server: `DATABASE_URL` (`mysql://…@127.0.0.1:3306/…`), `STORAGE_DIR` (outside `public_html`), `MASTER_KEY`, `DEMO_PASSWORD`, `PREPARE_DB`, `SEED_DEMO`. Production builds use webpack (`next build --webpack`) because Hostinger's build servers don't allow Turbopack's CSS worker process.
 
 ## Scripts
 
 | Command | Purpose |
 |---|---|
 | `npm run dev` / `build` / `start` | Next.js development, production build and serve |
-| `npm test` | 42 tests: SBP rules, pricing, templates, **all 8 products end to end**, and negative tests for every control (limits, Shariah preconditions, maker-checker, signer order, OTP, GPS, tamper detection) |
+| `npm test` | 44 tests (against the `sme_test` database): SBP rules, pricing, templates, **all 8 products end to end**, and negative tests for every control (limits, Shariah preconditions, maker-checker, signer order, OTP, GPS, tamper detection) |
 | `npm run typecheck` / `lint` | TypeScript and ESLint |
-| `npm run db:seed` / `db:reset` | Seed / reset the local database |
+| `npm run setup` | Install, migrate, apply append-only triggers, load demo data |
+| `npm run db:migrate` / `db:guards` / `db:seed` | Create a migration / re-apply append-only triggers / load demo data |
 | `npm run docs:workflows` | Regenerate `docs/WORKFLOWS.md` from the product catalogue |
 
 ## Tech stack
 
-Next.js 16 (App Router, Server Actions), React 19, TypeScript, Tailwind CSS 4, Prisma 6 (SQLite for evaluation, PostgreSQL for production), Zod and Vitest. No third-party services are required to run it.
+Next.js 16 (App Router, Server Actions), React 19, TypeScript, Tailwind CSS 4, Prisma 6 with MySQL / MariaDB, Zod and Vitest. No third-party services are required to run it.
 
 ## Project layout
 
 ```
-prisma/                 schema, migrations (incl. append-only triggers), seed
+prisma/                 schema, migrations, seed
+scripts/                db-guards.mjs (append-only triggers), prepare-db.mjs (server build hook), workflow doc generator
 src/lib/
   sbp.ts                SBP SME Prudential Regulations rules
   products/             product catalogue: data, Shariah preconditions, documents, signers, execution plans

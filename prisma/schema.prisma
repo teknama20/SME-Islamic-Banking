@@ -1,17 +1,17 @@
-// SME Islamic Banking Platform — data model
+// SME Islamic Banking Platform — data model (MySQL / MariaDB)
 //
-// Development runs on SQLite so the platform can be evaluated with zero
-// infrastructure. Production deployments target PostgreSQL (change the
-// provider, map money columns to NUMERIC(20,2) and enums to native enums).
-// Enumerations are stored as strings; the allowed values live in
-// src/lib/constants.ts so they stay identical across providers.
+// Runs on MySQL 8 / MariaDB 10.6+ (Hostinger managed MySQL in the hosted demo,
+// a local MariaDB in development and tests). Enumerations are stored as
+// strings; the allowed values live in src/lib/constants.ts. Append-only
+// triggers for the audit trail, signatures and executed documents are applied
+// by scripts/db-guards.mjs.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -31,7 +31,7 @@ model Tenant {
   logoText        String   @default("IB")
   tagline         String   @default("")
   shariahBoardRef String   @default("")
-  settings        String   @default("{}") // JSON: see TenantSettings in src/lib/tenant.ts
+  settings        String   @default("{}") @db.Text // JSON: see TenantSettings in src/lib/tenant.ts
   active          Boolean  @default(true)
   createdAt       DateTime @default(now())
 
@@ -96,30 +96,30 @@ model User {
 }
 
 model Session {
-  id           String    @id // sha256 of the cookie token
-  userId       String
-  user         User      @relation(fields: [userId], references: [id])
-  tenantId     String
-  mfaVerified  Boolean   @default(false)
-  ip           String    @default("")
-  userAgent    String    @default("")
-  createdAt    DateTime  @default(now())
-  lastSeenAt   DateTime  @default(now())
-  expiresAt    DateTime
-  revokedAt    DateTime?
+  id          String    @id // sha256 of the cookie token
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  tenantId    String
+  mfaVerified Boolean   @default(false)
+  ip          String    @default("")
+  userAgent   String    @default("") @db.Text
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
 }
 
 model OtpChallenge {
-  id          String    @id @default(cuid())
-  tenantId    String
-  userId      String
-  purpose     String // LOGIN | SIGN
-  refId       String    @default("") // session id or document id
-  codeHash    String
-  attempts    Int       @default(0)
-  expiresAt   DateTime
-  consumedAt  DateTime?
-  createdAt   DateTime  @default(now())
+  id         String    @id @default(cuid())
+  tenantId   String
+  userId     String
+  purpose    String // LOGIN | SIGN
+  refId      String    @default("") // session id or document id
+  codeHash   String
+  attempts   Int       @default(0)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
 }
 
 // ---------------------------------------------------------------------------
@@ -127,48 +127,48 @@ model OtpChallenge {
 // ---------------------------------------------------------------------------
 
 model Customer {
-  id                 String    @id @default(cuid())
-  tenantId           String
-  tenant             Tenant    @relation(fields: [tenantId], references: [id])
-  cif                String // core-banking customer number
-  legalName          String
-  tradeName          String    @default("")
-  legalForm          String // SOLE_PROPRIETOR | PARTNERSHIP | PRIVATE_LIMITED | PUBLIC_LIMITED | AOP
-  ntn                String    @default("")
-  strn               String    @default("")
-  registrationNo     String    @default("") // SECP / Registrar of Firms
-  establishedOn      DateTime?
-  sector             String
-  businessActivity   String    @default("")
-  address            String    @default("")
-  city               String    @default("")
-  annualTurnover     Float // PKR — drives SBP SME classification
-  smeCategory        String // MICRO | SMALL | MEDIUM | NOT_SME
-  isStartup          Boolean   @default(false)
-  womenLed           Boolean   @default(false)
-  riskCategory       String    @default("MEDIUM") // LOW | MEDIUM | HIGH
-  kycStatus          String    @default("PENDING") // PENDING | CLEARED | RETURNED
-  kycClearedAt       DateTime?
-  kycClearedById     String?
-  kycRemarks         String    @default("")
-  ecibCheckedAt      DateTime? // R-7
-  ecibOverdue        Boolean   @default(false)
-  ecibRemarks        String    @default("")
-  relatedParty       Boolean   @default(false) // R-11
-  otherBankExposure  Float     @default(0) // R-5, from e-CIB
-  premisesLat        Float? // R-14 geo-tagged premises
-  premisesLng        Float?
-  rmId               String
-  rm                 User      @relation("CustomerRM", fields: [rmId], references: [id])
-  orgUnitId          String // owning team
-  orgPath            String
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id                String    @id @default(cuid())
+  tenantId          String
+  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  cif               String // core-banking customer number
+  legalName         String
+  tradeName         String    @default("")
+  legalForm         String // SOLE_PROPRIETOR | PARTNERSHIP | PRIVATE_LIMITED | PUBLIC_LIMITED | AOP
+  ntn               String    @default("")
+  strn              String    @default("")
+  registrationNo    String    @default("") // SECP / Registrar of Firms
+  establishedOn     DateTime?
+  sector            String
+  businessActivity  String    @default("") @db.Text
+  address           String    @default("") @db.Text
+  city              String    @default("")
+  annualTurnover    Float // PKR — drives SBP SME classification
+  smeCategory       String // MICRO | SMALL | MEDIUM | NOT_SME
+  isStartup         Boolean   @default(false)
+  womenLed          Boolean   @default(false)
+  riskCategory      String    @default("MEDIUM") // LOW | MEDIUM | HIGH
+  kycStatus         String    @default("PENDING") // PENDING | CLEARED | RETURNED
+  kycClearedAt      DateTime?
+  kycClearedById    String?
+  kycRemarks        String    @default("") @db.Text
+  ecibCheckedAt     DateTime? // R-7
+  ecibOverdue       Boolean   @default(false)
+  ecibRemarks       String    @default("") @db.Text
+  relatedParty      Boolean   @default(false) // R-11
+  otherBankExposure Float     @default(0) // R-5, from e-CIB
+  premisesLat       Float? // R-14 geo-tagged premises
+  premisesLng       Float?
+  rmId              String
+  rm                User      @relation("CustomerRM", fields: [rmId], references: [id])
+  orgUnitId         String // owning team
+  orgPath           String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  people    CustomerPerson[]
-  users     User[]            @relation("CustomerUsers")
-  cases     FinancingCase[]
-  kycDocs   CustomerDocument[]
+  people  CustomerPerson[]
+  users   User[]             @relation("CustomerUsers")
+  cases   FinancingCase[]
+  kycDocs CustomerDocument[]
 
   @@unique([tenantId, cif])
 }
@@ -197,7 +197,7 @@ model CustomerDocument {
   status       String     @default("UPLOADED") // UPLOADED | VERIFIED | REJECTED
   verifiedById String?
   verifiedAt   DateTime?
-  remarks      String     @default("")
+  remarks      String     @default("") @db.Text
   uploadedById String
   createdAt    DateTime   @default(now())
 }
@@ -208,55 +208,55 @@ model CustomerDocument {
 
 /// One immutable case file per financing request.
 model FinancingCase {
-  id              String    @id @default(cuid())
-  tenantId        String
-  tenant          Tenant    @relation(fields: [tenantId], references: [id])
-  ref             String // SME-2026-00001
-  cptmNo          String? // R-19 application acknowledgement serial
-  customerId      String
-  customer        Customer  @relation(fields: [customerId], references: [id])
-  productCode     String
-  purpose         String
-  amount          Float // bank's financing amount, PKR
-  tenorMonths     Int
-  profitRate      Float // annual %, e.g. 6-month KIBOR + spread
-  benchmark       String    @default("6M KIBOR")
-  repayment       String    @default("MONTHLY") // MONTHLY | QUARTERLY | BULLET
-  securityType    String    @default("SECURED") // SECURED | CLEAN
-  collateral      String    @default("") // description of securities (R-13)
-  liquidLien      Float     @default(0) // liquid assets under perfected lien (R-5)
-  structure       String    @default("{}") // product-specific JSON
-  ecibJustification String  @default("") // R-7 reasons where borrower has overdues
-  stage           String    @default("DRAFT")
-  classification  String    @default("REGULAR") // REGULAR | SUBSTANDARD | DOUBTFUL | LOSS
-  daysPastDue     Int       @default(0)
-  rmId            String
-  rm              User      @relation("CaseRM", fields: [rmId], references: [id])
-  orgUnitId       String
-  orgPath         String
-  submittedAt     DateTime?
-  tatDueAt        DateTime?
-  sanctionedAt    DateTime?
-  offeredAt       DateTime?
-  acceptedAt      DateTime?
-  activatedAt     DateTime?
-  closedAt        DateTime?
+  id                     String    @id @default(cuid())
+  tenantId               String
+  tenant                 Tenant    @relation(fields: [tenantId], references: [id])
+  ref                    String // SME-2026-00001
+  cptmNo                 String? // R-19 application acknowledgement serial
+  customerId             String
+  customer               Customer  @relation(fields: [customerId], references: [id])
+  productCode            String
+  purpose                String    @db.Text
+  amount                 Float // bank's financing amount, PKR
+  tenorMonths            Int
+  profitRate             Float // annual %, e.g. 6-month KIBOR + spread
+  benchmark              String    @default("6M KIBOR")
+  repayment              String    @default("MONTHLY") // MONTHLY | QUARTERLY | BULLET
+  securityType           String    @default("SECURED") // SECURED | CLEAN
+  collateral             String    @default("") @db.Text // description of securities (R-13)
+  liquidLien             Float     @default(0) // liquid assets under perfected lien (R-5)
+  structure              String    @default("{}") @db.Text // product-specific JSON
+  ecibJustification      String    @default("") @db.Text // R-7 reasons where borrower has overdues
+  stage                  String    @default("DRAFT")
+  classification         String    @default("REGULAR") // REGULAR | SUBSTANDARD | DOUBTFUL | LOSS
+  daysPastDue            Int       @default(0)
+  rmId                   String
+  rm                     User      @relation("CaseRM", fields: [rmId], references: [id])
+  orgUnitId              String
+  orgPath                String
+  submittedAt            DateTime?
+  tatDueAt               DateTime?
+  sanctionedAt           DateTime?
+  offeredAt              DateTime?
+  acceptedAt             DateTime?
+  activatedAt            DateTime?
+  closedAt               DateTime?
   // Post-disbursement Shariah review (final control, after activation)
   shariahReviewStatus    String    @default("NOT_DUE") // NOT_DUE | PENDING | COMPLIANT | NON_COMPLIANT
   shariahReviewedById    String?
   shariahReviewedAt      DateTime?
-  shariahReviewComments  String    @default("")
-  shariahReviewChecklist String    @default("{}")
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  shariahReviewComments  String    @default("") @db.Text
+  shariahReviewChecklist String    @default("{}") @db.Text
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
-  clearances  Clearance[]
-  approvals   Approval[]
-  documents   Document[]
-  steps       ExecutionStep[]
-  evidence    Evidence[]
-  schedule    Installment[]
-  comments    CaseComment[]
+  clearances Clearance[]
+  approvals  Approval[]
+  documents  Document[]
+  steps      ExecutionStep[]
+  evidence   Evidence[]
+  schedule   Installment[]
+  comments   CaseComment[]
 
   @@unique([tenantId, ref])
 }
@@ -268,9 +268,9 @@ model Clearance {
   case        FinancingCase @relation(fields: [caseId], references: [id])
   track       String
   status      String        @default("PENDING") // PENDING | CLEARED | RETURNED
-  checklist   String        @default("{}") // JSON map of item -> boolean
+  checklist   String        @default("{}") @db.Text // JSON map of item -> boolean
   riskRating  String        @default("")
-  comments    String        @default("")
+  comments    String        @default("") @db.Text
   decidedById String?
   decidedAt   DateTime?
   round       Int           @default(1)
@@ -291,7 +291,7 @@ model Approval {
   status      String        @default("PENDING") // PENDING | APPROVED | REJECTED | RETURNED
   decidedById String?
   decidedAt   DateTime?
-  comments    String        @default("")
+  comments    String        @default("") @db.Text
   round       Int           @default(1)
   createdAt   DateTime      @default(now())
 }
@@ -301,7 +301,7 @@ model CaseComment {
   caseId    String
   case      FinancingCase @relation(fields: [caseId], references: [id])
   authorId  String
-  body      String
+  body      String        @db.Text
   internal  Boolean       @default(true) // hidden from customer users
   createdAt DateTime      @default(now())
 }
@@ -313,22 +313,22 @@ model CaseComment {
 /// Bank-configurable, version-controlled template. Only APPROVED versions
 /// (Shariah + Legal sign-off) can be used to generate case documents.
 model Template {
-  id                String    @id @default(cuid())
+  id                String     @id @default(cuid())
   tenantId          String
-  tenant            Tenant    @relation(fields: [tenantId], references: [id])
+  tenant            Tenant     @relation(fields: [tenantId], references: [id])
   code              String
   title             String
   version           Int
-  body              String
-  status            String    @default("DRAFT") // DRAFT | APPROVED | RETIRED
-  shariahRef        String    @default("")
+  body              String     @db.MediumText
+  status            String     @default("DRAFT") // DRAFT | APPROVED | RETIRED
+  shariahRef        String     @default("")
   shariahApprovedBy String?
   shariahApprovedAt DateTime?
-  legalRef          String    @default("")
+  legalRef          String     @default("")
   legalApprovedBy   String?
   legalApprovedAt   DateTime?
   createdById       String?
-  createdAt         DateTime  @default(now())
+  createdAt         DateTime   @default(now())
   documents         Document[]
 
   @@unique([tenantId, code, version])
@@ -344,9 +344,9 @@ model Document {
   code        String
   title       String
   version     Int           @default(1)
-  content     String // rendered text (placeholders resolved) — hashed & signed
+  content     String        @db.MediumText // rendered text (placeholders resolved) — hashed & signed
   contentHash String
-  signerPlan  String // JSON: SignerSlot[]
+  signerPlan  String        @db.Text // JSON: SignerSlot[]
   status      String        @default("ISSUED") // ISSUED | EXECUTED | DECLINED | VOID
   stepKey     String?
   createdById String
@@ -357,26 +357,26 @@ model Document {
 
 /// Append-only (DB triggers block UPDATE/DELETE).
 model Signature {
-  id          String   @id @default(cuid())
-  documentId  String
-  document    Document @relation(fields: [documentId], references: [id])
-  slot        Int
-  party       String // RCAD | BANK | CUSTOMER | GUARANTOR
-  capacity    String // e.g. "Customer — Authorised Signatory"
-  signerId    String
-  signerName  String // name as typed by the signer
-  signerRole  String
-  method      String // OTP_ESIGN | ...
-  decision    String // SIGNED | DECLINED
-  reason      String   @default("")
-  docHash     String
-  seal        String // HMAC seal binding signer, slot, time and hash
-  ip          String   @default("")
-  userAgent   String   @default("")
-  lat         Float?
-  lng         Float?
-  accuracy    Float?
-  signedAt    DateTime @default(now())
+  id         String   @id @default(cuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+  slot       Int
+  party      String // RCAD | BANK | CUSTOMER | GUARANTOR
+  capacity   String // e.g. "Customer — Authorised Signatory"
+  signerId   String
+  signerName String // name as typed by the signer
+  signerRole String
+  method     String // OTP_ESIGN | ...
+  decision   String // SIGNED | DECLINED
+  reason     String   @default("") @db.Text
+  docHash    String
+  seal       String // HMAC seal binding signer, slot, time and hash
+  ip         String   @default("")
+  userAgent  String   @default("") @db.Text
+  lat        Float?
+  lng        Float?
+  accuracy   Float?
+  signedAt   DateTime @default(now())
 }
 
 // ---------------------------------------------------------------------------
@@ -392,40 +392,40 @@ model ExecutionStep {
   title         String
   kind          String // SIGN | EVIDENCE | ACTION | CHECK
   status        String        @default("LOCKED") // LOCKED | READY | DONE
-  config        String        @default("{}") // JSON: StepSpec
+  config        String        @default("{}") @db.Text // JSON: StepSpec
   completedById String?
   completedAt   DateTime?
-  outcome       String        @default("{}") // JSON: refs, amounts, remarks
+  outcome       String        @default("{}") @db.Text // JSON: refs, amounts, remarks
 
   @@unique([caseId, key])
 }
 
 model Evidence {
-  id              String        @id @default(cuid())
-  tenantId        String
-  caseId          String
-  case            FinancingCase @relation(fields: [caseId], references: [id])
-  stepKey         String?
-  category        String // POSSESSION | DELIVERY | INSPECTION | MILESTONE | SITE_VISIT | INVOICE | TITLE | TAKAFUL | VALUATION | OTHER
-  description     String        @default("")
-  assetRef        String        @default("")
-  fileId          String
-  file            StoredFile    @relation("EvidenceOriginal", fields: [fileId], references: [id])
-  stampedFileId   String?
-  stampedFile     StoredFile?   @relation("EvidenceStamped", fields: [stampedFileId], references: [id])
-  lat             Float?
-  lng             Float?
-  accuracy        Float?
-  locationNote    String        @default("")
-  serverTime      DateTime      @default(now())
-  clientTime      String        @default("")
-  device          String        @default("{}") // JSON
-  ip              String        @default("")
-  capturedById    String
-  status          String        @default("SUBMITTED") // SUBMITTED | VERIFIED | REJECTED
-  verifiedById    String?
-  verifiedAt      DateTime?
-  verifyRemarks   String        @default("")
+  id            String        @id @default(cuid())
+  tenantId      String
+  caseId        String
+  case          FinancingCase @relation(fields: [caseId], references: [id])
+  stepKey       String?
+  category      String // POSSESSION | DELIVERY | INSPECTION | MILESTONE | SITE_VISIT | INVOICE | TITLE | TAKAFUL | VALUATION | OTHER
+  description   String        @default("") @db.Text
+  assetRef      String        @default("")
+  fileId        String
+  file          StoredFile    @relation("EvidenceOriginal", fields: [fileId], references: [id])
+  stampedFileId String?
+  stampedFile   StoredFile?   @relation("EvidenceStamped", fields: [stampedFileId], references: [id])
+  lat           Float?
+  lng           Float?
+  accuracy      Float?
+  locationNote  String        @default("") @db.Text
+  serverTime    DateTime      @default(now())
+  clientTime    String        @default("")
+  device        String        @default("{}") @db.Text // JSON
+  ip            String        @default("")
+  capturedById  String
+  status        String        @default("SUBMITTED") // SUBMITTED | VERIFIED | REJECTED
+  verifiedById  String?
+  verifiedAt    DateTime?
+  verifyRemarks String        @default("") @db.Text
 }
 
 model StoredFile {
@@ -435,32 +435,32 @@ model StoredFile {
   sha256       String // hash of the plaintext
   size         Int
   mimeType     String
-  originalName String
+  originalName String   @db.VarChar(255)
   storageKey   String // path under STORAGE_DIR
   iv           String
   authTag      String
   uploadedById String
   createdAt    DateTime @default(now())
 
-  evidence         Evidence[]         @relation("EvidenceOriginal")
-  stampedEvidence  Evidence[]         @relation("EvidenceStamped")
-  customerDocs     CustomerDocument[]
+  evidence        Evidence[]         @relation("EvidenceOriginal")
+  stampedEvidence Evidence[]         @relation("EvidenceStamped")
+  customerDocs    CustomerDocument[]
 }
 
 model Installment {
-  id          String        @id @default(cuid())
-  caseId      String
-  case        FinancingCase @relation(fields: [caseId], references: [id])
-  seq         Int
-  dueDate     DateTime
-  principal   Float // cost / unit price / capital component
-  profit      Float // profit / rental component
-  total       Float
-  units       Float         @default(0) // Diminishing Musharakah units purchased
-  bankShare   Float         @default(0) // bank's remaining ownership after this instalment
-  paidAmount  Float         @default(0)
-  paidAt      DateTime?
-  status      String        @default("DUE") // DUE | PAID | OVERDUE
+  id         String        @id @default(cuid())
+  caseId     String
+  case       FinancingCase @relation(fields: [caseId], references: [id])
+  seq        Int
+  dueDate    DateTime
+  principal  Float // cost / unit price / capital component
+  profit     Float // profit / rental component
+  total      Float
+  units      Float         @default(0) // Diminishing Musharakah units purchased
+  bankShare  Float         @default(0) // bank's remaining ownership after this instalment
+  paidAmount Float         @default(0)
+  paidAt     DateTime?
+  status     String        @default("DUE") // DUE | PAID | OVERDUE
 }
 
 // ---------------------------------------------------------------------------
@@ -470,31 +470,31 @@ model Installment {
 /// Tamper-evident, hash-chained, append-only audit trail.
 /// hash = SHA-256(prevHash || canonical(event)). DB triggers block UPDATE/DELETE.
 model AuditEvent {
-  id          String   @id @default(cuid())
-  tenantId    String
-  tenant      Tenant   @relation(fields: [tenantId], references: [id])
-  seq         Int
-  eventType   String
-  action      String // CREATE | VIEW | UPDATE | APPROVE | SIGN | UPLOAD | DOWNLOAD | LOGIN | ...
-  summary     String
-  caseId      String?
-  customerId  String?
-  entityType  String   @default("")
-  entityId    String   @default("")
-  actorId     String?
-  actorName   String   @default("system")
-  actorRole   String   @default("SYSTEM")
-  before      String   @default("")
-  after       String   @default("")
-  docHash     String   @default("")
-  ip          String   @default("")
-  userAgent   String   @default("")
-  lat         Float?
-  lng         Float?
-  accuracy    Float?
-  occurredAt  DateTime @default(now())
-  prevHash    String
-  hash        String
+  id         String   @id @default(cuid())
+  tenantId   String
+  tenant     Tenant   @relation(fields: [tenantId], references: [id])
+  seq        Int
+  eventType  String
+  action     String // CREATE | VIEW | UPDATE | APPROVE | SIGN | UPLOAD | DOWNLOAD | LOGIN | ...
+  summary    String   @db.Text
+  caseId     String?
+  customerId String?
+  entityType String   @default("")
+  entityId   String   @default("")
+  actorId    String?
+  actorName  String   @default("system")
+  actorRole  String   @default("SYSTEM")
+  before     String   @default("") @db.MediumText
+  after      String   @default("") @db.MediumText
+  docHash    String   @default("")
+  ip         String   @default("")
+  userAgent  String   @default("") @db.Text
+  lat        Float?
+  lng        Float?
+  accuracy   Float?
+  occurredAt DateTime @default(now())
+  prevHash   String
+  hash       String
 
   @@unique([tenantId, seq])
   @@index([tenantId, caseId])
@@ -507,7 +507,7 @@ model Notification {
   userId    String
   user      User      @relation(fields: [userId], references: [id])
   title     String
-  body      String    @default("")
+  body      String    @default("") @db.Text
   link      String    @default("")
   readAt    DateTime?
   createdAt DateTime  @default(now())

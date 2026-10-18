@@ -17,7 +17,7 @@
               Product catalogue  │   SBP rules│   Audit trail (hash chain)
               (src/lib/products) │  (sbp.ts)  │   (audit.ts)
                                  ▼            ▼             ▼
-                        Prisma ORM ── PostgreSQL / SQLite      Encrypted file vault
+                        Prisma ORM ── MySQL / MariaDB          Encrypted file vault
                         (append-only triggers on AuditEvent,   (AES-256-GCM per tenant,
                          Signature; frozen Document text)        SHA-256 content hash)
 ```
@@ -70,20 +70,13 @@
 | Valuation partners (PBA panel) | Valuation reports and FSV (Annexure II) |
 | SIEM | Security monitoring |
 
-## 5. Moving to PostgreSQL
+## 5. Database
 
-1. Change `provider` to `postgresql` in `prisma/schema.prisma`. Map money fields to `Decimal @db.Decimal(20,2)` and status strings to native enums if preferred.
-2. Regenerate migrations, then port the append-only triggers:
-
-```sql
-CREATE FUNCTION forbid_change() RETURNS trigger AS $$
-BEGIN RAISE EXCEPTION '% is append-only', TG_TABLE_NAME; END; $$ LANGUAGE plpgsql;
-CREATE TRIGGER audit_append_only BEFORE UPDATE OR DELETE ON "AuditEvent" FOR EACH ROW EXECUTE FUNCTION forbid_change();
-CREATE TRIGGER signature_append_only BEFORE UPDATE OR DELETE ON "Signature" FOR EACH ROW EXECUTE FUNCTION forbid_change();
-REVOKE UPDATE, DELETE ON "AuditEvent", "Signature" FROM app_user;
-```
-
-3. Use row-level security, or one schema per tenant, if the bank requires database-level tenant isolation.
+* **Engine:** MySQL 8 / MariaDB 10.6+. Hostinger's managed MySQL is used in the hosted demo, and MariaDB locally and in tests. Long text (documents, templates, audit before/after values) uses `TEXT` / `MEDIUMTEXT`. Timestamps are stored with millisecond precision, so audit hashes re-verify exactly.
+* **Append-only guards:** `scripts/db-guards.mjs` creates triggers that reject UPDATE and DELETE on `AuditEvent` and `Signature`, and any change to an executed document's text or hash. It runs on every server build and is idempotent. If a hosting plan withholds the TRIGGER privilege, the build continues with a warning and the hash chain still detects tampering. In production, also `REVOKE UPDATE, DELETE ON AuditEvent, Signature` from the application user.
+* **Concurrency:** each audit append locks the bank's tenant row (`SELECT … FOR UPDATE`) inside the business transaction, so simultaneous users cannot fork the hash chain. A test fires 25 concurrent writes and verifies the chain.
+* **Money:** amounts are `DOUBLE` in this build. Move them to `DECIMAL(20,2)` (Prisma `Decimal`) before handling live balances.
+* **Isolation:** one schema serves all tenants, with every query scoped by `tenantId`. Use one database per bank if a bank's policy requires physical separation.
 
 ## 6. Roadmap
 

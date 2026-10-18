@@ -62,6 +62,9 @@ export function computeAuditHash(e: HashFields): string {
 
 /** Appends one event to the tenant chain. Call inside the business transaction. */
 export async function audit(tx: Tx, actor: Actor, input: AuditInput): Promise<AuditEvent> {
+  // Serialise appends per bank: lock the tenant row so concurrent transactions
+  // cannot read the same chain head and fork the hash chain.
+  await tx.$queryRaw`SELECT id FROM \`Tenant\` WHERE id = ${actor.tenantId} FOR UPDATE`;
   const last = await tx.auditEvent.findFirst({
     where: { tenantId: actor.tenantId },
     orderBy: { seq: "desc" },
