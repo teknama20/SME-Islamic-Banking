@@ -7,7 +7,8 @@ import { classifySme } from "../sbp";
 import { TEMPLATE_LIBRARY } from "../templates/library";
 import { DEFAULT_SETTINGS, type TenantSettings } from "../tenant";
 
-export const DEMO_PASSWORD = "Bank@12345";
+// Hosted demos set DEMO_PASSWORD so the published default is never used online.
+export const DEMO_PASSWORD = process.env.DEMO_PASSWORD || "Bank@12345";
 
 type OrgSpec = { code: string; type: string; name: string; parent?: string };
 

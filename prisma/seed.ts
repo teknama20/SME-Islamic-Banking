@@ -178,7 +178,7 @@ async function main() {
     structure: { specifications: "3-axis CNC machining line: 4 × VMC-850, 2 × CNC lathes, conveyor & QC station per BOQ rev.3", contractorName: "Precision Engineering Works", siteAddress: "B-17, SITE Industrial Area, Karachi", deliveryDate: new Date(Date.now() + 240 * 86400_000).toISOString().slice(0, 10), milestones: "3" },
   });
 
-  console.log(`Seeded tenants IBP & DCB. Demo password for every user: ${DEMO_PASSWORD}`);
+  console.log(process.env.DEMO_PASSWORD ? "Seeded tenants IBP & DCB (demo password from DEMO_PASSWORD)." : `Seeded tenants IBP & DCB. Demo password for every user: ${DEMO_PASSWORD}`);
 }
 
 main()
