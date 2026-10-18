@@ -8,9 +8,9 @@ import { TRACK_CHECKLISTS, type Stage } from "../constants";
 import { db } from "../db";
 import type { SignerSlot } from "../products/types";
 import { TRACK_ROLE, type Track } from "../rbac";
-import { decideApproval, decideClearance, issueOffer, submitCase } from "../engine/cases";
+import { decideApproval, decideClearance, submitCase } from "../engine/cases";
 import { requestSigningOtp, signDocument } from "../engine/documents";
-import { DISBURSEMENT_CHECKERS, completeAction, completeCheck, stepSpec, submitEvidence, verifyEvidence } from "../engine/execution";
+import { DISBURSEMENT_CHECKERS, SHARIAH_REVIEW_CHECKLIST, completeAction, completeCheck, shariahReview, stepSpec, submitEvidence, verifyEvidence } from "../engine/execution";
 import { usersForRoles } from "../engine/notify";
 import { demoPng } from "./png";
 
@@ -38,8 +38,8 @@ async function actorById(id: string) {
   return actorOf(await db.user.findUniqueOrThrow({ where: { id }, include: { orgUnit: true } }));
 }
 
-async function pick(tenantId: string, roles: string[], orgPath: string, exclude: string[] = []) {
-  const users = await usersForRoles(db, tenantId, roles, orgPath);
+async function pick(tenantId: string, roles: string[], kase: { orgPath: string; rmId?: string } | string, exclude: string[] = []) {
+  const users = await usersForRoles(db, tenantId, roles, kase);
   const u = users.find((x) => !exclude.includes(x.id));
   if (!u) throw new Error(`Autopilot: no eligible user for ${roles.join("/")} (excluding ${exclude.length})`);
   return actorOf(u);
@@ -51,6 +51,14 @@ async function signAs(actor: Actor, documentId: string) {
   await signDocument(actor, documentId, { challengeId: otp.challengeId, otp: otp.devCode, typedName: actor.name, consent: true, decision: "SIGNED" });
 }
 
+async function signerFor(doc: { signatures: { signerId: string; party: string }[] }, slot: SignerSlot, kase: { tenantId: string; orgPath: string; customerId: string; rmId: string }): Promise<Actor> {
+  if (slot.party === "BANK") return pick(kase.tenantId, slot.roles ?? [], kase, doc.signatures.filter((s) => s.party === "BANK").map((s) => s.signerId));
+  if (slot.party === "RCAD") return pick(kase.tenantId, slot.roles ?? [], kase);
+  const u = await db.user.findFirst({ where: { customerId: kase.customerId, role: slot.party === "GUARANTOR" ? "GUARANTOR" : "CUSTOMER_SIGNATORY" }, include: { orgUnit: true } });
+  if (!u) throw new Error(`Autopilot: customer has no ${slot.party} user`);
+  return actorOf(u);
+}
+
 async function signAllSlots(documentId: string) {
   for (;;) {
     const doc = await db.document.findUniqueOrThrow({ where: { id: documentId }, include: { signatures: true, case: true } });
@@ -59,7 +67,7 @@ async function signAllSlots(documentId: string) {
     const slot = plan[doc.signatures.filter((s) => s.decision === "SIGNED").length];
     const kase = doc.case;
     let actor: Actor;
-    if (slot.party === "BANK") actor = await pick(kase.tenantId, slot.roles ?? [], kase.orgPath, [kase.rmId, ...doc.signatures.map((s) => s.signerId)]);
+    if (slot.party === "BANK" || slot.party === "RCAD") actor = await signerFor(doc, slot, kase);
     else {
       const u = await db.user.findFirst({ where: { customerId: kase.customerId, role: slot.party === "GUARANTOR" ? "GUARANTOR" : "CUSTOMER_SIGNATORY" }, include: { orgUnit: true } });
       if (!u) throw new Error(`Autopilot: customer has no ${slot.party} user`);
@@ -84,7 +92,7 @@ export async function step(caseId: string, until: Stage): Promise<boolean> {
       const cl = await db.clearance.findFirst({ where: { caseId, status: "PENDING" }, orderBy: { track: "asc" } });
       if (!cl) return false;
       const track = cl.track as Track;
-      const actor = await pick(kase.tenantId, [TRACK_ROLE[track]], kase.orgPath);
+      const actor = await pick(kase.tenantId, [TRACK_ROLE[track]], kase);
       await decideClearance(actor, caseId, track, {
         decision: "CLEARED",
         checklist: TRACK_CHECKLISTS[track],
@@ -97,23 +105,23 @@ export async function step(caseId: string, until: Stage): Promise<boolean> {
       const ap = await db.approval.findFirst({ where: { caseId, status: "PENDING" }, orderBy: [{ round: "desc" }, { level: "asc" }] });
       if (!ap) return false;
       const decided = await db.approval.findMany({ where: { caseId, round: ap.round, decidedById: { not: null } } });
-      const actor = await pick(kase.tenantId, [ap.role], kase.orgPath, [kase.rmId, ...decided.map((d) => d.decidedById!)]);
+      const actor = await pick(kase.tenantId, [ap.role], kase, [kase.rmId, ...decided.map((d) => d.decidedById!)]);
       await decideApproval(actor, caseId, { decision: "APPROVE", comments: ap.action === "RECOMMEND" ? "Recommended for approval." : "Approved within delegated authority." });
       return true;
     }
-    case "SANCTIONED": {
-      const offer = await db.document.findFirstOrThrow({ where: { caseId, code: "OFFER_LETTER", status: "ISSUED" }, include: { signatures: true } });
-      if (!offer.signatures.length) {
-        const plan = JSON.parse(offer.signerPlan) as SignerSlot[];
-        await signAs(await pick(kase.tenantId, plan[0].roles ?? [], kase.orgPath, [kase.rmId]), offer.id);
-      } else await issueOffer(rm, caseId);
-      return true;
-    }
+    case "SANCTIONED":
     case "OFFERED": {
-      const docs = await db.document.findMany({ where: { caseId, code: { in: ["OFFER_LETTER", "KFS"] }, status: "ISSUED" } });
-      if (!docs.length) return false;
-      for (const d of docs) await signAllSlots(d.id);
-      return true;
+      // sign the next eligible slot on the offer documents (customer slots wait for OFFERED)
+      const docs = await db.document.findMany({ where: { caseId, code: { in: ["OFFER_LETTER", "KFS"] }, status: "ISSUED" }, include: { signatures: true } });
+      for (const d of docs) {
+        const plan = JSON.parse(d.signerPlan) as SignerSlot[];
+        const slot = plan[d.signatures.filter((x) => x.decision === "SIGNED").length];
+        if (!slot) continue;
+        if ((slot.party === "CUSTOMER" || slot.party === "GUARANTOR") && kase.stage !== "OFFERED") continue;
+        await signAs(await signerFor(d, slot, kase), d.id);
+        return true;
+      }
+      return false;
     }
     case "EXECUTION": {
       const st = await db.executionStep.findFirst({ where: { caseId, status: "READY" }, orderBy: { seq: "asc" } });
@@ -125,7 +133,7 @@ export async function step(caseId: string, until: Stage): Promise<boolean> {
       } else if (spec.kind === "EVIDENCE" && spec.evidence) {
         const ev = spec.evidence;
         const custUser = await db.user.findFirst({ where: { customerId: kase.customerId, role: { in: ev.capturers.filter((r) => r.startsWith("CUSTOMER")) } }, include: { orgUnit: true } });
-        const capturer = custUser ? actorOf(custUser) : ev.capturers.includes("RM") ? rm : await pick(kase.tenantId, ev.capturers.filter((r) => !r.startsWith("CUSTOMER")), kase.orgPath);
+        const capturer = custUser ? actorOf(custUser) : ev.capturers.includes("RM") ? rm : await pick(kase.tenantId, ev.capturers.filter((r) => !r.startsWith("CUSTOMER")), kase);
         const existing = await db.evidence.count({ where: { caseId, stepKey: st.key, status: { not: "REJECTED" } } });
         for (let i = existing; i < ev.minItems; i++) {
           const cat = ev.categories[i % ev.categories.length];
@@ -137,22 +145,22 @@ export async function step(caseId: string, until: Stage): Promise<boolean> {
         }
         const pending = await db.evidence.findMany({ where: { caseId, stepKey: st.key, status: "SUBMITTED" } });
         for (const p of pending) {
-          const verifier = await pick(kase.tenantId, ev.verifiers, kase.orgPath, [p.capturedById]);
+          const verifier = await pick(kase.tenantId, ev.verifiers, kase, [p.capturedById]);
           await verifyEvidence(verifier, p.id, "VERIFIED", "Verified against originals; GPS and timestamps consistent.", ev.checklist);
         }
       } else if (spec.kind === "ACTION" && spec.action) {
         const fields: Record<string, string> = {};
         for (const f of spec.action.fields) fields[f.name] = f.type === "number" ? String(paymentAmount(kase, st.key, spec.title)) : `${f.name.toUpperCase()}-${kase.ref}-${st.seq}`;
         if (spec.action.effect === "DISBURSE") {
-          const maker = await pick(kase.tenantId, spec.action.roles, kase.orgPath);
+          const maker = await pick(kase.tenantId, spec.action.roles, kase);
           await completeAction(maker, st.id, fields);
-          const checker = await pick(kase.tenantId, DISBURSEMENT_CHECKERS, kase.orgPath, [maker.userId]);
+          const checker = await pick(kase.tenantId, DISBURSEMENT_CHECKERS, kase, [maker.userId]);
           await completeAction(checker, st.id, {}, true);
         } else {
-          await completeAction(await pick(kase.tenantId, spec.action.roles, kase.orgPath), st.id, fields);
+          await completeAction(await pick(kase.tenantId, spec.action.roles, kase), st.id, fields);
         }
       } else if (spec.kind === "CHECK" && spec.check) {
-        await completeCheck(await pick(kase.tenantId, spec.check.roles, kase.orgPath), st.id, spec.check.checklist, "Verified per Shariah Board-approved process (ref. SB/2026/07).");
+        await completeCheck(await pick(kase.tenantId, spec.check.roles, kase), st.id, spec.check.checklist, "Verified per Shariah Board-approved process (ref. SB/2026/07).");
       }
       return true;
     }
@@ -173,4 +181,11 @@ export async function autopilot(caseId: string, until: Stage = "ACTIVE", maxStep
     if (!(await step(caseId, until))) break;
   }
   return db.financingCase.findUniqueOrThrow({ where: { id: caseId } });
+}
+
+/** Records a compliant post-disbursement Shariah review (demo / tests). */
+export async function shariahSignOff(caseId: string) {
+  const kase = await db.financingCase.findUniqueOrThrow({ where: { id: caseId } });
+  const actor = await pick(kase.tenantId, ["SHARIAH"], kase);
+  await shariahReview(actor, caseId, { decision: "COMPLIANT", checklist: SHARIAH_REVIEW_CHECKLIST, comments: "File reviewed after disbursement — sequence, possession and pricing compliant (SB/2026/07)." });
 }

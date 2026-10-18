@@ -4,12 +4,13 @@ import { requireActor } from "@/lib/auth";
 import { EVIDENCE_LABELS } from "@/lib/constants";
 import { PRODUCTS, allDocSpecs, buildExecutionPlan } from "@/lib/products/catalog";
 import type { StepSpec } from "@/lib/products/types";
+import { SHARIAH_REVIEW_CHECKLIST } from "@/lib/engine/execution";
 import { roleLabel } from "@/lib/rbac";
 
 function actors(s: StepSpec, signers: Record<string, string[]>) {
   if (s.kind === "SIGN") return signers[s.docCode!] ?? [];
   if (s.kind === "EVIDENCE") return [`Capture: ${s.evidence!.capturers.map(roleLabel).join(", ")}`, `Verify: ${s.evidence!.verifiers.map(roleLabel).join(", ")}`];
-  if (s.kind === "ACTION") return [s.action!.roles.map(roleLabel).join(", ") + (s.action!.effect === "DISBURSE" ? " (maker) → Operations / Unit Head (checker)" : "")];
+  if (s.kind === "ACTION") return [s.action!.roles.map(roleLabel).join(", ") + (s.action!.effect === "DISBURSE" ? " (maker) → Team Leader / Unit Head (checker)" : "")];
   return s.check!.roles.map(roleLabel);
 }
 
@@ -102,7 +103,7 @@ export default async function ProductPage({ params }: { params: Promise<{ code: 
 
       <Card title="Execution sequence (enforced by the workflow engine)" className="mt-6">
         <ol className="space-y-3">
-          {plan.map((s, i) => (
+          {[...plan, { key: "shariah_review", title: "Post-disbursement Shariah review of the complete file", kind: "CHECK", dependsOn: ["activate"], check: { roles: ["SHARIAH"], checklist: SHARIAH_REVIEW_CHECKLIST } } as StepSpec].map((s, i) => (
             <li key={s.key} className="rounded-lg border border-line p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="grid size-6 place-items-center rounded-full bg-brand text-xs text-white">{i + 1}</span>

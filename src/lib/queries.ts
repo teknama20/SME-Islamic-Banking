@@ -20,7 +20,7 @@ export function nextSlot(doc: { signerPlan: string; signatures: { decision: stri
 /** Mirrors engine/documents.assertCanSign without throwing. */
 export function isMyTurnToSign(
   actor: Actor,
-  doc: { code: string; status: string; signerPlan: string; signatures: { decision: string; signerId: string }[] },
+  doc: { code: string; status: string; signerPlan: string; signatures: { decision: string; signerId: string; party: string }[] },
   kase: { stage: string; customerId: string; rmId: string },
   stepReady: boolean,
 ) {
@@ -28,19 +28,21 @@ export function isMyTurnToSign(
   const { slot } = nextSlot(doc);
   if (!slot) return false;
   const offer = OFFER_DOCS.includes(doc.code);
-  if (offer && slot.party === "BANK" && kase.stage !== "SANCTIONED") return false;
-  if (offer && slot.party !== "BANK" && kase.stage !== "OFFERED") return false;
+  const customerSide = slot.party === "CUSTOMER" || slot.party === "GUARANTOR";
+  if (offer && !["SANCTIONED", "OFFERED"].includes(kase.stage)) return false;
+  if (offer && customerSide && kase.stage !== "OFFERED") return false;
   if (!offer && (kase.stage !== "EXECUTION" || !stepReady)) return false;
   if (slot.party === "CUSTOMER") return actor.role === "CUSTOMER_SIGNATORY" && actor.customerId === kase.customerId;
   if (slot.party === "GUARANTOR") return actor.role === "GUARANTOR" && actor.customerId === kase.customerId;
-  return actor.kind === "BANK" && !!slot.roles?.includes(actor.role as never) && actor.userId !== kase.rmId && !doc.signatures.some((s) => s.signerId === actor.userId);
+  if (actor.kind !== "BANK" || !slot.roles?.includes(actor.role as never)) return false;
+  return slot.party !== "BANK" || !doc.signatures.some((s) => s.party === "BANK" && s.signerId === actor.userId);
 }
 
 export async function getMyTasks(actor: Actor): Promise<Task[]> {
   const scope = caseScope(actor);
   const tasks: Task[] = [];
   const cases = await db.financingCase.findMany({
-    where: { ...scope, stage: { notIn: ["CLOSED", "CANCELLED", "REJECTED", "DECLINED"] } },
+    where: { ...scope, OR: [{ stage: { notIn: ["CLOSED", "CANCELLED", "REJECTED", "DECLINED"] } }, { shariahReviewStatus: "PENDING" }] },
     include: {
       customer: { select: { legalName: true } },
       clearances: true,
@@ -59,8 +61,6 @@ export async function getMyTasks(actor: Actor): Promise<Task[]> {
     if (actor.userId === c.rmId) {
       if (c.stage === "DRAFT") tasks.push({ kind: "Draft", title: `Complete & submit ${product} request`, detail: label, href: `/cases/${c.id}`, since: c.updatedAt });
       if (c.stage === "RETURNED") tasks.push({ kind: "Returned", title: `Address review comments on ${product}`, detail: label, href: `/cases/${c.id}`, since: c.updatedAt, urgent: true });
-      if (c.stage === "SANCTIONED" && c.documents.some((d) => d.code === "OFFER_LETTER" && d.signatures.some((s) => s.party === "BANK")))
-        tasks.push({ kind: "Offer", title: "Issue signed offer letter to customer", detail: label, href: `/cases/${c.id}`, since: c.updatedAt });
     }
 
     if (c.stage === "UNDER_REVIEW") {
@@ -73,6 +73,9 @@ export async function getMyTasks(actor: Actor): Promise<Task[]> {
       const a = c.approvals[0];
       tasks.push({ kind: "Approval", title: `${a.action === "RECOMMEND" ? "Recommend" : "Approve"} ${product} — PKR ${c.amount.toLocaleString("en-PK")}`, detail: `${label} · level ${a.level} (${roleLabel(a.role)})`, href: `/cases/${c.id}?tab=approvals`, since: a.createdAt, urgent: !!c.tatDueAt && c.tatDueAt < new Date() });
     }
+
+    if (c.shariahReviewStatus === "PENDING" && actor.role === "SHARIAH")
+      tasks.push({ kind: "Shariah review", title: `Post-disbursement Shariah review — ${product}`, detail: label, href: `/cases/${c.id}?tab=shariah`, since: c.activatedAt ?? c.updatedAt });
 
     const readyKeys = new Set(c.steps.map((s) => s.key));
     for (const d of c.documents) {

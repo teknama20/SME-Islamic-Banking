@@ -178,8 +178,9 @@ export async function assertCanSign(tx: Tx, actor: Actor, documentId: string): P
 
   const isOffer = OFFER_DOCS.includes(doc.code);
   if (isOffer) {
-    if (slot.party === "BANK" && kase.stage !== "SANCTIONED") throw new RuleError("The bank signs the offer after sanction and before issue.");
-    if (slot.party !== "BANK" && kase.stage !== "OFFERED") throw new RuleError("The offer has not been issued to the customer yet.");
+    const customerSide = slot.party === "CUSTOMER" || slot.party === "GUARANTOR";
+    if (!["SANCTIONED", "OFFERED"].includes(kase.stage)) throw new RuleError("The offer can only be signed between sanction and acceptance.");
+    if (customerSide && kase.stage !== "OFFERED") throw new RuleError("The offer reaches the customer once the bank has signed it.");
   } else {
     if (kase.stage !== "EXECUTION") throw new RuleError("Execution documents can only be signed during the execution stage.");
     if (doc.stepKey) {
@@ -194,8 +195,10 @@ export async function assertCanSign(tx: Tx, actor: Actor, documentId: string): P
     if (actor.role !== "GUARANTOR" || actor.customerId !== kase.customerId) throw new AccessError(`This signature is reserved for: ${slot.capacity}.`);
   } else {
     if (actor.kind !== "BANK" || !slot.roles?.includes(actor.role as never)) throw new AccessError(`This signature is reserved for: ${slot.capacity}.`);
-    if (doc.signatures.some((s) => s.signerId === actor.userId)) throw new RuleError("Four-eyes rule: the same officer cannot sign twice for the bank.");
-    if (actor.userId === kase.rmId) throw new RuleError("The case RM cannot sign as the bank's authorised signatory.");
+    // Four eyes: each bank signature on a document must be a different officer.
+    // (RCAD may prepare and later verify the same document.)
+    if (slot.party === "BANK" && doc.signatures.some((s) => s.party === "BANK" && s.signerId === actor.userId))
+      throw new RuleError("Four-eyes rule: the same officer cannot sign twice for the bank.");
   }
   return { doc, kase, slot, slotIndex };
 }
@@ -259,7 +262,7 @@ export async function signDocument(actor: Actor, documentId: string, input: Sign
     const user = await tx.user.findUniqueOrThrow({ where: { id: actor.userId } });
     if (input.typedName.trim().toLowerCase() !== user.fullName.trim().toLowerCase()) throw new RuleError(`Type your full name exactly as registered: ${user.fullName}.`);
     if (input.decision === "DECLINED" && !(input.reason ?? "").trim()) throw new RuleError("A reason is required to decline.");
-    if (input.decision === "DECLINED" && slot.party === "BANK") throw new RuleError("Bank signatories return a case through the approval workflow, not by declining a document.");
+    if (input.decision === "DECLINED" && (slot.party === "BANK" || slot.party === "RCAD")) throw new RuleError("Bank signatories return a case through the approval workflow, not by declining a document.");
     const otpError = await checkOtp(tx, actor, input.challengeId, input.otp, "SIGN", doc.id);
     if (otpError) return { otpError };
 
@@ -316,7 +319,24 @@ export async function signDocument(actor: Actor, documentId: string, input: Sign
       await audit(tx, actor, { eventType: "DOCUMENT_EXECUTED", action: "EXECUTE", summary: `${doc.title} fully executed (${plan.length} signature(s))`, caseId: kase.id, customerId: kase.customerId, entityType: "Document", entityId: doc.id, docHash: doc.contentHash });
       await afterDocumentExecuted(tx, actor, kase, doc);
     } else {
-      await notifyNextSigner(tx, kase, doc, plan[slotIndex + 1]);
+      const next = plan[slotIndex + 1];
+      // The offer goes to the customer automatically once the bank has signed it.
+      if (doc.code === "OFFER_LETTER" && kase.stage === "SANCTIONED" && (next.party === "CUSTOMER" || next.party === "GUARANTOR")) {
+        await tx.financingCase.update({ where: { id: kase.id }, data: { stage: "OFFERED", offeredAt: signedAt } });
+        await audit(tx, actor, {
+          eventType: "OFFER_ISSUED",
+          action: "ISSUE",
+          summary: `Offer letter signed by the bank and issued to the customer for ${kase.ref}`,
+          caseId: kase.id,
+          customerId: kase.customerId,
+          entityType: "Document",
+          entityId: doc.id,
+          docHash: doc.contentHash,
+          before: { stage: "SANCTIONED" },
+          after: { stage: "OFFERED" },
+        });
+      }
+      await notifyNextSigner(tx, kase, doc, next);
     }
     return { otpError: null };
   });
@@ -325,8 +345,8 @@ export async function signDocument(actor: Actor, documentId: string, input: Sign
 
 export async function notifyNextSigner(tx: Tx, kase: FinancingCase, doc: Document, next: SignerSlot) {
   const link = `/documents/${doc.id}`;
-  if (next.party === "BANK") {
-    const users = await usersForRoles(tx, kase.tenantId, next.roles ?? [], kase.orgPath);
+  if (next.party === "BANK" || next.party === "RCAD") {
+    const users = await usersForRoles(tx, kase.tenantId, next.roles ?? [], kase);
     await notify(tx, kase.tenantId, users.map((u) => u.id), "Signature required", `${doc.title} — ${next.capacity}`, link);
   } else {
     const users = await customerUsers(tx, kase.customerId, [next.party === "GUARANTOR" ? "GUARANTOR" : "CUSTOMER_SIGNATORY"]);

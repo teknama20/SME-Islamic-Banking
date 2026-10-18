@@ -125,7 +125,7 @@ async function main() {
   });
   await autopilot(c1.id, "ACTIVE");
   const firstInst = await db.installment.findFirst({ where: { caseId: c1.id }, orderBy: { seq: "asc" } });
-  if (firstInst) await recordRepayment(await rm("ops.officer"), firstInst.id, firstInst.total, "CBS-RCPT-778812");
+  if (firstInst) await recordRepayment(await rm("rcad.officer"), firstInst.id, firstInst.total, "CBS-RCPT-778812");
 
   // 2) Diminishing Musharakah — in execution (offer accepted, documents being signed)
   const c2 = await createCase(await rm("rm.ali"), {
@@ -145,7 +145,7 @@ async function main() {
   const { step } = await import("../src/lib/demo/autopilot");
   for (let i = 0; i < 3; i++) await step(c2.id, "ACTIVE");
 
-  // 3) Murabaha — under review (clearances pending)
+  // 3) Murabaha — under review (Credit pending)
   const c3 = await createCase(await rm("rm.ali"), {
     customerId: alNoor.id,
     productCode: "MURABAHA",

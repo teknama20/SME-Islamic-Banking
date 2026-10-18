@@ -16,10 +16,12 @@ It is built for Islamic banks and for the Islamic banking windows of conventiona
 | **Hierarchy & roles** | Country → Region → Unit → Team. RM, Team Leader, Unit Head, Regional Head, Country Head, Credit/Risk, RCAD, Trade, Shariah, Legal, Operations, Internal Audit and Administrator. Customer-side roles: authorised signatory, user/accountant and guarantor. Each user sees only their own book or their org subtree. Control functions see the whole bank. |
 | **Customer onboarding** | Digital onboarding, owners and UBOs, geo-tagged premises, KYC document vault, RCAD KYC/CDD decision with e-CIB, other-bank exposure and related-party flag. SBP SME classification and start-up flag are applied automatically. |
 | **Products** | Murabaha · Tijarah · Istisna (project, with Parallel Istisna) · Istisna (working capital) · Diminishing Musharakah · Ijarah · Salam · Running Musharakah. |
-| **Case workflow** | Draft → submission (CPTM number, automatic customer acknowledgement, 15-working-day TAT clock) → **parallel** RCAD / Credit / Trade / Shariah / Legal clearances → delegated-authority approval chain → sanction → offer and bilingual Key Fact Statement → customer e-acceptance → product execution sequence → activation → repayments, classification and closure. |
+| **Case workflow** | Draft → submission (CPTM number, automatic customer acknowledgement, 15-working-day TAT clock) → RCAD + Credit review (Trade / Legal / pre-sanction Shariah optional per bank) → delegated-authority approval → sanction → **documentation loop** → disbursement → activation → **post-disbursement Shariah review** → repayments, classification and closure. |
+| **Documentation loop** | Every document and evidence item of every product follows one loop: **RCAD prepares & vets → RM / Team Leader / Unit Head sign → Customer (or Guarantor) signs → RCAD / RM verifies**. The offer goes to the customer automatically once the bank signs. Shariah ordering (e.g. possession before a Murabaha sale) is enforced by step dependencies. |
 | **Digital signing** | Strict signer order, OTP per signature, typed full name, consent, GPS, IP and device. Each signature is sealed to the SHA-256 of the exact document text. Four-eyes rule for bank signatories. Signatures are append-only. |
 | **Possession evidence** | In-app photo/video/PDF capture with mandatory GPS where Shariah requires possession, trusted server time and device metadata. Images get a watermarked copy and the original is kept. Files are SHA-256 hashed and AES-256-GCM encrypted. Verification is maker-checker. |
-| **Payments** | Disbursements are maker-checker (Operations initiates, a second officer authorises) and capped at the sanctioned amount. |
+| **Payments** | Disbursements are maker-checker (RCAD prepares, a Team Leader or Unit Head authorises) and capped at the sanctioned amount. |
+| **Shariah review** | After disbursement the Shariah Compliance Officer reviews the complete file (sequence, possession evidence, executed documents, pricing) and marks it compliant, or non-compliant with rectification and purification of income to charity. |
 | **Audit** | Per-tenant hash-chained audit trail, with database triggers blocking UPDATE and DELETE. Every view, upload, signature and decision is recorded with who, what, when, where (GPS), IP and device. The audit explorer verifies the chain. The **Execution Pack** is printable, and the evidence bundle is a hashed JSON export. |
 | **Templates** | Version-controlled model agreements in English, with Urdu (RTL) sections. A new version needs **Shariah** and **Legal** approval, and its author can't approve it. |
 | **MIS** | Portfolio by mode, SME category, sector, city, women-led and start-ups; classification; average TAT. |
@@ -60,21 +62,21 @@ Sign in with bank code **IBP**, any demo user below, and password **`Bank@12345`
 
 | Username | Role | | Username | Role |
 |---|---|---|---|---|
-| `rm.ali`, `rm.sara` | Relationship Manager | | `rcad.officer` | RCAD |
+| `rm.ali`, `rm.sara` | Relationship Manager | | `rcad.officer` | RCAD (documentation loop, disbursement maker) |
 | `tl.gulberg` | Team Leader | | `credit.officer` | Credit / Risk |
 | `uh.gulberg` | Unit Head | | `trade.officer` | Trade |
 | `rh.north` / `rh.south` | Regional Heads | | `shariah.officer` | Shariah Compliance |
 | `ch.ahmed` | Country Head | | `legal.officer` | Legal |
-| `ops.officer` / `ops.checker` | Operations maker / checker | | `auditor` | Internal Audit (read-only) |
+| `ops.officer` | Operations (optional) | | `auditor` | Internal Audit (read-only) |
 | `noor.ceo` | Customer signatory (Al-Noor Textiles) | | `admin` | Platform administrator |
 | `noor.guarantor` | Guarantor | | `barakah.partner` | Customer signatory (Barakah Agro) |
 
 The seed leaves cases in different states so you can see each part of the lifecycle:
 
-- **SME-2026-00001**: Murabaha, fully executed and active, with one instalment paid. Open the *Execution pack*.
-- **SME-2026-00002**: Diminishing Musharakah, in execution. Sign the *Undertaking to Purchase* as `noor.ceo`, and perfect security as `legal.officer`.
-- **SME-2026-00003**: Murabaha, under review. RCAD has cleared; Credit, Trade, Shariah and Legal are pending.
-- **SME-2026-00004**: Istisna, still a draft. The customer's KYC is pending, so RCAD must clear it first.
+- **SME-2026-00001**: Murabaha, active and fully executed, with one instalment paid. The post-disbursement Shariah review is waiting for `shariah.officer`.
+- **SME-2026-00002**: Diminishing Musharakah, in the documentation loop. Follow the action centre: RCAD → RM / TL / UH → `noor.ceo` → RCAD.
+- **SME-2026-00003**: Murabaha, under review. RCAD has cleared and Credit is pending.
+- **SME-2026-00004**: Istisna, still a draft. RCAD must clear the customer's KYC first.
 
 To rebuild the demo database from scratch, run `npm run db:reset`. **This deletes all local data.**
 
@@ -83,7 +85,7 @@ To rebuild the demo database from scratch, run `npm run db:reset`. **This delete
 | Command | Purpose |
 |---|---|
 | `npm run dev` / `build` / `start` | Next.js development, production build and serve |
-| `npm test` | 41 tests: SBP rules, pricing, templates, **all 8 products end to end**, and negative tests for every control (limits, Shariah preconditions, maker-checker, signer order, OTP, GPS, tamper detection) |
+| `npm test` | 42 tests: SBP rules, pricing, templates, **all 8 products end to end**, and negative tests for every control (limits, Shariah preconditions, maker-checker, signer order, OTP, GPS, tamper detection) |
 | `npm run typecheck` / `lint` | TypeScript and ESLint |
 | `npm run db:seed` / `db:reset` | Seed / reset the local database |
 | `npm run docs:workflows` | Regenerate `docs/WORKFLOWS.md` from the product catalogue |

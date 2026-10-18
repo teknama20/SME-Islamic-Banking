@@ -9,7 +9,7 @@ import { SME_LABELS, type SmeCategory } from "@/lib/sbp";
 import { ActionCentre } from "./action-centre";
 import { ExecutionTab } from "./execution-tab";
 import { loadCase } from "./load";
-import { ApprovalsTab, AuditTab, ClearancesTab, DocumentsTab, EvidenceTab, OverviewTab, ScheduleTab } from "./sections";
+import { ApprovalsTab, AuditTab, ClearancesTab, DocumentsTab, EvidenceTab, OverviewTab, ScheduleTab, ShariahTab } from "./sections";
 
 export default async function CasePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; done?: string }> }) {
   const { id } = await params;
@@ -29,6 +29,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
     { key: "execution", label: "Execution", count: kase.steps.length },
     { key: "evidence", label: "Evidence", count: kase.evidence.length },
     { key: "schedule", label: "Schedule" },
+    ...(isBank ? [{ key: "shariah", label: kase.shariahReviewStatus === "PENDING" ? "Shariah review •" : "Shariah review" }] : []),
     ...(isBank ? [{ key: "audit", label: "Audit trail" }] : []),
   ];
   const current = tabs.some((t) => t.key === tab) ? tab : "overview";
@@ -79,6 +80,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
       {current === "execution" && <ExecutionTab actor={actor} data={loaded} />}
       {current === "evidence" && <EvidenceTab actor={actor} data={loaded} />}
       {current === "schedule" && <ScheduleTab actor={actor} data={loaded} />}
+      {current === "shariah" && <ShariahTab actor={actor} data={loaded} />}
       {current === "audit" && <AuditTab actor={actor} data={loaded} />}
     </>
   );

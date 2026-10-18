@@ -3,10 +3,10 @@
 import { redirect } from "next/navigation";
 import type { ActionState } from "@/lib/action-state";
 import { db } from "@/lib/db";
-import { addComment, cancelCase, createCase, decideApproval, decideClearance, issueOffer, submitCase, updateDraft } from "@/lib/engine/cases";
+import { addComment, cancelCase, createCase, decideApproval, decideClearance, submitCase, updateDraft } from "@/lib/engine/cases";
 import { createCustomer, createCustomerUser, recordKyc } from "@/lib/engine/customers";
 import { requestSigningOtp, signDocument } from "@/lib/engine/documents";
-import { completeAction, completeCheck, recordRepayment, updateDaysPastDue, verifyEvidence } from "@/lib/engine/execution";
+import { completeAction, completeCheck, recordRepayment, shariahReview, updateDaysPastDue, verifyEvidence } from "@/lib/engine/execution";
 import { AccessError, RuleError, type Track } from "@/lib/rbac";
 import { all, run, str } from "./run";
 
@@ -147,10 +147,10 @@ export async function approvalAction(caseId: string, _: ActionState, fd: FormDat
   });
 }
 
-export async function issueOfferAction(caseId: string, _: ActionState, fd: FormData) {
+export async function shariahReviewAction(caseId: string, _: ActionState, fd: FormData) {
   return run(fd, async (actor) => {
-    await issueOffer(actor, caseId);
-    return "Offer issued to the customer.";
+    await shariahReview(actor, caseId, { decision: str(fd, "decision") === "NON_COMPLIANT" ? "NON_COMPLIANT" : "COMPLIANT", checklist: all(fd, "checklist"), comments: str(fd, "comments") });
+    return "Shariah review recorded.";
   });
 }
 

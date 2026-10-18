@@ -1,12 +1,12 @@
 import type { BankRole, Role } from "../rbac";
 
-export type Party = "CUSTOMER" | "GUARANTOR" | "BANK";
+export type Party = "RCAD" | "BANK" | "CUSTOMER" | "GUARANTOR";
 
 /** One signature position on a document, signed strictly in order. */
 export type SignerSlot = {
   party: Party;
   capacity: string;
-  /** For BANK slots: which roles may sign as authorised signatory. */
+  /** For RCAD / BANK slots: which roles may sign. */
   roles?: BankRole[];
 };
 

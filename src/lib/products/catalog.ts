@@ -8,32 +8,50 @@
 import type { BankRole, Role } from "../rbac";
 import type { CaseShape, DocSpec, ProductDef, SignerSlot, StepSpec } from "./types";
 
-// --- Signatories ---------------------------------------------------------------
+// --- Signatories -------------------------------------------------------------
+//
+// Every document follows the same documentation loop:
+//   RCAD prepares & vets → bank signs (RM / Team Leader / Unit Head)
+//   → customer (or guarantor) signs → RCAD / RM verifies the executed set.
 
+export const RCAD_PREPARE: SignerSlot = { party: "RCAD", capacity: "RCAD — Prepared & vetted", roles: ["RCAD"] };
+export const BANK_SIGN: SignerSlot = {
+  party: "BANK",
+  capacity: "Bank — Authorised Signatory (RM / Team Leader / Unit Head)",
+  roles: ["RM", "TEAM_LEADER", "UNIT_HEAD"],
+};
+export const BANK_SIGN_SECOND: SignerSlot = {
+  party: "BANK",
+  capacity: "Bank — Second Signatory (Team Leader / Unit Head)",
+  roles: ["TEAM_LEADER", "UNIT_HEAD"],
+};
 export const CUSTOMER_SIGN: SignerSlot = { party: "CUSTOMER", capacity: "Customer — Authorised Signatory" };
-export const BANK_SIGN_A: SignerSlot = {
-  party: "BANK",
-  capacity: "Bank — Authorised Signatory (Category A)",
-  roles: ["UNIT_HEAD", "REGIONAL_HEAD", "COUNTRY_HEAD"],
-};
-export const BANK_SIGN_B: SignerSlot = {
-  party: "BANK",
-  capacity: "Bank — Authorised Signatory (Category B)",
-  roles: ["OPERATIONS", "TEAM_LEADER"],
-};
 export const GUARANTOR_SIGN: SignerSlot = { party: "GUARANTOR", capacity: "Guarantor" };
+export const RCAD_VERIFY: SignerSlot = { party: "RCAD", capacity: "RCAD / RM — Documentation verified", roles: ["RCAD", "RM"] };
 
-const CAPTURERS: Role[] = ["CUSTOMER_SIGNATORY", "CUSTOMER_USER", "RM", "OPERATIONS"];
-const BANK_CAPTURERS: Role[] = ["RM", "OPERATIONS", "TRADE", "RCAD"];
-const POSSESSION_VERIFIERS: BankRole[] = ["OPERATIONS", "RCAD", "TRADE"];
+/** RCAD → (parties) → RCAD/RM */
+const loop = (...parties: SignerSlot[]): SignerSlot[] => [RCAD_PREPARE, ...parties, RCAD_VERIFY];
+/** Main agreements: two bank signatures (four eyes), then the customer. */
+const AGREEMENT = loop(BANK_SIGN, BANK_SIGN_SECOND, CUSTOMER_SIGN);
+const BILATERAL = loop(BANK_SIGN, CUSTOMER_SIGN);
+const CUSTOMER_ONLY = loop(CUSTOMER_SIGN);
+const BANK_ONLY = loop(BANK_SIGN);
+
+// Evidence: captured by the customer or RM, verified by RCAD / RM (never the capturer).
+const CAPTURERS: Role[] = ["CUSTOMER_SIGNATORY", "CUSTOMER_USER", "RM"];
+const BANK_CAPTURERS: Role[] = ["RM", "RCAD"];
+const VERIFIERS: BankRole[] = ["RCAD", "RM"];
+
+/** Disbursement: RCAD prepares (maker), Team Leader / Unit Head authorises (checker). */
+export const DISBURSEMENT_MAKERS: BankRole[] = ["RCAD"];
 
 // --- Common documents (all products) -------------------------------------------
 
 export const COMMON_DOCS: DocSpec[] = [
-  { code: "OFFER_LETTER", title: "Facility Offer Letter (Sanction Advice)", signers: [BANK_SIGN_A, CUSTOMER_SIGN] },
-  { code: "KFS", title: "Key Fact Statement (English / اردو)", signers: [CUSTOMER_SIGN] },
-  { code: "PERSONAL_GUARANTEE", title: "Personal Guarantee", signers: [GUARANTOR_SIGN, BANK_SIGN_B] },
-  { code: "SECURITY_DOCUMENTS", title: "Memorandum of Charge / Mortgage / Hypothecation", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
+  { code: "OFFER_LETTER", title: "Facility Offer Letter (Sanction Advice)", signers: BILATERAL },
+  { code: "KFS", title: "Key Fact Statement (English / اردو)", signers: [RCAD_PREPARE, CUSTOMER_SIGN] },
+  { code: "PERSONAL_GUARANTEE", title: "Personal Guarantee", signers: loop(GUARANTOR_SIGN) },
+  { code: "SECURITY_DOCUMENTS", title: "Memorandum of Charge / Mortgage / Hypothecation", signers: BILATERAL },
 ];
 
 // --- Step builders -------------------------------------------------------------
@@ -54,7 +72,7 @@ const disburse = (key: string, title: string, dependsOn: string[], note?: string
   dependsOn,
   note,
   action: {
-    roles: ["OPERATIONS"],
+    roles: DISBURSEMENT_MAKERS,
     effect: "DISBURSE",
     fields: [
       { name: "paymentRef", label: "Payment / transaction reference", type: "text" },
@@ -71,19 +89,10 @@ const activate = (dependsOn: string[], note: string): StepSpec => ({
   dependsOn,
   note,
   action: {
-    roles: ["OPERATIONS"],
+    roles: ["RCAD"],
     effect: "ACTIVATE",
     fields: [{ name: "cbsRef", label: "Core banking account / deal reference", type: "text" }],
   },
-});
-
-const shariahCheck = (key: string, title: string, dependsOn: string[], checklist: string[], note?: string): StepSpec => ({
-  key,
-  title,
-  kind: "CHECK",
-  dependsOn,
-  note,
-  check: { roles: ["SHARIAH"], checklist },
 });
 
 const evidence = (
@@ -101,7 +110,7 @@ const evidence = (
   evidence: {
     minItems: 2,
     capturers: CAPTURERS,
-    verifiers: POSSESSION_VERIFIERS,
+    verifiers: VERIFIERS,
     requireGps: true,
     ...opts,
   },
@@ -162,10 +171,10 @@ const MURABAHA: ProductDef = {
     return e;
   },
   documents: [
-    { code: "MMFA", title: "Master Murabaha Financing Agreement", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] },
-    { code: "PROMISE_TO_PURCHASE", title: "Undertaking / Promise to Purchase", signers: [CUSTOMER_SIGN] },
-    { code: "AGENCY_AGREEMENT", title: "Agency Agreement (Wakalah) for Purchase", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
-    { code: "MURABAHA_DECLARATION", title: "Declaration & Offer to Purchase / Bank's Acceptance (Murabaha Sale)", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
+    { code: "MMFA", title: "Master Murabaha Financing Agreement", signers: AGREEMENT },
+    { code: "PROMISE_TO_PURCHASE", title: "Undertaking / Promise to Purchase", signers: CUSTOMER_ONLY },
+    { code: "AGENCY_AGREEMENT", title: "Agency Agreement (Wakalah) for Purchase", signers: BILATERAL },
+    { code: "MURABAHA_DECLARATION", title: "Murabaha Sale — Bank's Offer & Customer's Acceptance", signers: BILATERAL },
   ],
   steps: (c) => {
     const agent = s(c, "purchaseMode") !== "BANK_DIRECT";
@@ -183,15 +192,9 @@ const MURABAHA: ProductDef = {
           "Supplier invoice / delivery challan matches the quotation",
           "Asset physically identified (serial / lot / tag) and photographed at location",
           "Asset in the bank's (or agent's) possession; risk with the bank",
-        ],
+        "Bank's ownership established before sale", "Physical / constructive possession verified from evidence", "No sale to the customer has occurred before possession", "Supplier is a third party (no buy-back)"],
       }, "AAOIFI SS 18: geo-tagged, time-stamped proof of possession before onward sale."),
-      shariahCheck("shariah_possession", "Shariah verification of ownership & possession", ["possession"], [
-        "Bank's ownership established before sale",
-        "Physical / constructive possession verified from evidence",
-        "No sale to the customer has occurred before possession",
-        "Supplier is a third party (no buy-back)",
-      ]),
-      sign("declaration", "Murabaha sale: customer's offer & bank's acceptance", "MURABAHA_DECLARATION", ["shariah_possession"], "The Murabaha sale is concluded here; price (cost + profit) is fixed from this point."),
+      sign("declaration", "Murabaha sale: bank's offer & customer's acceptance", "MURABAHA_DECLARATION", ["possession"], "Only after possession is verified. The Murabaha sale is concluded here; price (cost + profit) is fixed from this point."),
       activate(["declaration"], "Deferred sale price receivable booked; instalment schedule starts."),
     );
     return steps;
@@ -231,9 +234,9 @@ const TIJARAH: ProductDef = {
     return e;
   },
   documents: [
-    { code: "MTA", title: "Master Tijarah Agreement", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] },
-    { code: "TIJARAH_SALE", title: "Tijarah Sale Deed (Customer sells goods to Bank)", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
-    { code: "SALES_AGENCY", title: "Sales Agency Agreement (Customer sells on Bank's behalf)", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
+    { code: "MTA", title: "Master Tijarah Agreement", signers: AGREEMENT },
+    { code: "TIJARAH_SALE", title: "Tijarah Sale Deed (Customer sells goods to Bank)", signers: BILATERAL },
+    { code: "SALES_AGENCY", title: "Sales Agency Agreement (Customer sells on Bank's behalf)", signers: BILATERAL },
   ],
   steps: () => [
     sign("mta", "Execute Master Tijarah Agreement", "MTA", []),
@@ -243,13 +246,9 @@ const TIJARAH: ProductDef = {
       categories: ["POSSESSION", "INSPECTION"],
       minItems: 2,
       capturers: BANK_CAPTURERS,
-      checklist: ["Goods segregated & marked as bank property", "Quantity & quality verified against sale deed", "Warehouse access / keys under bank control or agent"],
+      checklist: ["Goods segregated & marked as bank property", "Quantity & quality verified against sale deed", "Warehouse access / keys under bank control or agent", "Bank's ownership & possession established", "Resale will be to third parties, not the customer"],
     }),
-    shariahCheck("shariah_possession", "Shariah verification of possession", ["stock_possession"], [
-      "Bank's ownership & possession established",
-      "Resale will be to third parties, not the customer",
-    ]),
-    sign("agency", "Appoint customer as sales agent", "SALES_AGENCY", ["shariah_possession"]),
+    sign("agency", "Appoint customer as sales agent", "SALES_AGENCY", ["stock_possession"]),
     activate(["agency"], "Resale proceeds due at maturity; sale price includes bank's profit."),
   ],
 };
@@ -290,9 +289,9 @@ const ISTISNA: ProductDef = {
     return e;
   },
   documents: [
-    { code: "ISTISNA_AGREEMENT", title: "Istisna Agreement (Bank as manufacturer, Customer as buyer)", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] },
-    { code: "PARALLEL_ISTISNA", title: "Parallel Istisna Agreement (Bank with Contractor)", signers: [BANK_SIGN_A], offPlatformCounterparty: "Contractor" },
-    { code: "DELIVERY_CERTIFICATE", title: "Delivery & Acceptance Certificate", signers: [CUSTOMER_SIGN, BANK_SIGN_B] },
+    { code: "ISTISNA_AGREEMENT", title: "Istisna Agreement (Bank as manufacturer, Customer as buyer)", signers: AGREEMENT },
+    { code: "PARALLEL_ISTISNA", title: "Parallel Istisna Agreement (Bank with Contractor)", signers: BANK_ONLY, offPlatformCounterparty: "Contractor" },
+    { code: "DELIVERY_CERTIFICATE", title: "Delivery & Acceptance Certificate", signers: BILATERAL },
   ],
   steps: (c) => {
     const m = Math.min(6, Math.max(1, Math.round(n(c, "milestones")) || 1));
@@ -303,7 +302,7 @@ const ISTISNA: ProductDef = {
         categories: ["COUNTERPARTY_CONTRACT"],
         minItems: 1,
         capturers: BANK_CAPTURERS,
-        verifiers: ["LEGAL", "TRADE"],
+        verifiers: VERIFIERS,
         requireGps: false,
         checklist: ["Contractor signature & stamp present", "Terms identical to platform version (hash compared)"],
       }),
@@ -315,7 +314,7 @@ const ISTISNA: ProductDef = {
           categories: ["MILESTONE", "SITE_VISIT", "INSPECTION"],
           minItems: 2,
           capturers: BANK_CAPTURERS,
-          verifiers: ["TRADE", "OPERATIONS"],
+          verifiers: VERIFIERS,
           checklist: ["Consultant / engineer certificate attached", "Geo-tagged site photos / video", "Contractor invoice for milestone"],
         }),
         disburse(`milestone_pay_${i}`, `Release milestone ${i} payment to contractor`, [`milestone_${i}`]),
@@ -327,13 +326,9 @@ const ISTISNA: ProductDef = {
         categories: ["DELIVERY", "POSSESSION", "INSPECTION"],
         minItems: 2,
         capturers: BANK_CAPTURERS,
-        checklist: ["Completion certificate", "Asset conforms to specifications", "Bank took possession from contractor"],
+        checklist: ["Completion certificate", "Asset conforms to specifications", "Bank took possession from contractor", "Asset conforms to Istisna specifications", "Bank possessed the asset before delivering it to the customer", "Goods manufactured after contract", "Bank's possession verified before resale", "Price was paid in full at contract", "Goods delivered conform to specifications", "Any Parallel Salam is independent"],
       }),
-      shariahCheck("shariah_delivery", "Shariah verification before handover", ["delivery"], [
-        "Asset conforms to Istisna specifications",
-        "Bank possessed the asset before delivering it to the customer",
-      ]),
-      sign("handover", "Customer accepts delivery", "DELIVERY_CERTIFICATE", ["shariah_delivery"]),
+      sign("handover", "Customer accepts delivery", "DELIVERY_CERTIFICATE", ["delivery"]),
       activate(["handover"], "Istisna price receivable from customer per agreed schedule."),
     );
     return steps;
@@ -372,8 +367,8 @@ const ISTISNA_WC: ProductDef = {
     return e;
   },
   documents: [
-    { code: "ISTISNA_WC_AGREEMENT", title: "Istisna Agreement (Customer as manufacturer, Bank as buyer)", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] },
-    { code: "SALES_AGENCY", title: "Sales Agency Agreement (Customer sells on Bank's behalf)", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
+    { code: "ISTISNA_WC_AGREEMENT", title: "Istisna Agreement (Customer as manufacturer, Bank as buyer)", signers: AGREEMENT },
+    { code: "SALES_AGENCY", title: "Sales Agency Agreement (Customer sells on Bank's behalf)", signers: BILATERAL },
   ],
   steps: () => [
     sign("istisna", "Execute Istisna Agreement", "ISTISNA_WC_AGREEMENT", []),
@@ -384,8 +379,7 @@ const ISTISNA_WC: ProductDef = {
       capturers: BANK_CAPTURERS,
       checklist: ["Goods match specifications & quantity", "Goods segregated as bank property", "Inspection report attached"],
     }),
-    shariahCheck("shariah_delivery", "Shariah verification of delivery", ["delivery"], ["Goods manufactured after contract", "Bank's possession verified before resale"]),
-    sign("agency", "Appoint customer as sales agent", "SALES_AGENCY", ["shariah_delivery"]),
+    sign("agency", "Appoint customer as sales agent", "SALES_AGENCY", ["delivery"]),
     activate(["agency"], "Sale proceeds (cost + profit) due at maturity."),
   ],
 };
@@ -436,9 +430,9 @@ const DIMINISHING_MUSHARAKAH: ProductDef = {
     return e;
   },
   documents: [
-    { code: "MUSHARAKAH_AGREEMENT", title: "Musharakah (Shirkat-ul-Milk) Agreement", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] },
-    { code: "UNDERTAKING_TO_PURCHASE", title: "Undertaking to Purchase Musharakah Units", signers: [CUSTOMER_SIGN] },
-    { code: "DM_IJARAH", title: "Ijarah (Rental) Agreement for Bank's Share", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
+    { code: "MUSHARAKAH_AGREEMENT", title: "Musharakah (Shirkat-ul-Milk) Agreement", signers: AGREEMENT },
+    { code: "UNDERTAKING_TO_PURCHASE", title: "Undertaking to Purchase Musharakah Units", signers: CUSTOMER_ONLY },
+    { code: "DM_IJARAH", title: "Ijarah (Rental) Agreement for Bank's Share", signers: BILATERAL },
   ],
   steps: () => [
     sign("musharakah", "Execute Musharakah (co-ownership) Agreement", "MUSHARAKAH_AGREEMENT", []),
@@ -447,7 +441,7 @@ const DIMINISHING_MUSHARAKAH: ProductDef = {
       categories: ["VALUATION", "TITLE"],
       minItems: 2,
       capturers: BANK_CAPTURERS,
-      verifiers: ["CREDIT_RISK", "LEGAL"],
+      verifiers: VERIFIERS,
       requireGps: false,
       checklist: ["PBA-panel valuer report (full scope)", "Title search / legal opinion clear"],
     }, "SME PR Annexure II: valuation by PBA-panel evaluator."),
@@ -461,16 +455,11 @@ const DIMINISHING_MUSHARAKAH: ProductDef = {
     evidence("takaful", "Upload Takaful cover for the asset", ["title_possession"], {
       categories: ["TAKAFUL"],
       minItems: 1,
-      verifiers: ["OPERATIONS"],
+      verifiers: VERIFIERS,
       requireGps: false,
-      checklist: ["Takaful covers full asset value", "Bank noted as co-owner / loss payee"],
+      checklist: ["Takaful covers full asset value", "Bank noted as co-owner / loss payee", "Joint ownership created before lease", "Lease, co-ownership & unit undertaking are separate documents", "Rental applies only to the bank's share", "Bank owns the asset", "Asset exists and is deliverable", "No rental charged before delivery"],
     }),
-    shariahCheck("shariah_ownership", "Shariah verification of co-ownership", ["takaful"], [
-      "Joint ownership created before lease",
-      "Lease, co-ownership & unit undertaking are separate documents",
-      "Rental applies only to the bank's share",
-    ]),
-    sign("ijarah", "Execute Ijarah of bank's share", "DM_IJARAH", ["shariah_ownership"], "Rental accrues only after the asset is acquired and delivered."),
+    sign("ijarah", "Execute Ijarah of bank's share", "DM_IJARAH", ["takaful"], "Rental accrues only after the asset is acquired and delivered."),
     activate(["ijarah"], "Unit purchase & rental schedule starts; unit register maintained."),
   ],
 };
@@ -518,9 +507,9 @@ const IJARAH: ProductDef = {
     return e;
   },
   documents: [
-    { code: "UNDERTAKING_TO_LEASE", title: "Undertaking to Lease", signers: [CUSTOMER_SIGN] },
-    { code: "IJARAH_AGREEMENT", title: "Ijarah Agreement & Rental Schedule", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] },
-    { code: "UNDERTAKING_TO_SELL", title: "Bank's Undertaking to Sell / Gift at Maturity", signers: [BANK_SIGN_A] },
+    { code: "UNDERTAKING_TO_LEASE", title: "Undertaking to Lease", signers: CUSTOMER_ONLY },
+    { code: "IJARAH_AGREEMENT", title: "Ijarah Agreement & Rental Schedule", signers: AGREEMENT },
+    { code: "UNDERTAKING_TO_SELL", title: "Bank's Undertaking to Sell / Gift at Maturity", signers: BANK_ONLY },
   ],
   steps: () => [
     sign("undertaking_lease", "Customer signs Undertaking to Lease", "UNDERTAKING_TO_LEASE", []),
@@ -534,12 +523,11 @@ const IJARAH: ProductDef = {
     evidence("takaful", "Upload Takaful cover (bank as owner)", ["bank_possession"], {
       categories: ["TAKAFUL"],
       minItems: 1,
-      verifiers: ["OPERATIONS"],
+      verifiers: VERIFIERS,
       requireGps: false,
       checklist: ["Takaful in bank's name as owner"],
     }),
-    shariahCheck("shariah_lease", "Shariah verification before lease", ["takaful"], ["Bank owns the asset", "Asset exists and is deliverable", "No rental charged before delivery"]),
-    sign("ijarah", "Execute Ijarah Agreement", "IJARAH_AGREEMENT", ["shariah_lease"]),
+    sign("ijarah", "Execute Ijarah Agreement", "IJARAH_AGREEMENT", ["takaful"]),
     evidence("handover", "Capture handover of asset to customer", ["ijarah"], {
       categories: ["DELIVERY"],
       minItems: 1,
@@ -586,8 +574,8 @@ const SALAM: ProductDef = {
     return e;
   },
   documents: [
-    { code: "SALAM_AGREEMENT", title: "Salam Agreement (Customer as seller, Bank as buyer)", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] },
-    { code: "SALES_AGENCY", title: "Sales Agency Agreement (Customer sells on Bank's behalf)", signers: [CUSTOMER_SIGN, BANK_SIGN_A] },
+    { code: "SALAM_AGREEMENT", title: "Salam Agreement (Customer as seller, Bank as buyer)", signers: AGREEMENT },
+    { code: "SALES_AGENCY", title: "Sales Agency Agreement (Customer sells on Bank's behalf)", signers: BILATERAL },
   ],
   steps: () => [
     sign("salam", "Execute Salam Agreement", "SALAM_AGREEMENT", []),
@@ -598,8 +586,7 @@ const SALAM: ProductDef = {
       capturers: BANK_CAPTURERS,
       checklist: ["Quantity & grade per Salam specifications", "Warehouse receipt / storage location", "Geo-tagged photos of goods"],
     }),
-    shariahCheck("shariah_delivery", "Shariah verification of Salam delivery", ["delivery"], ["Price was paid in full at contract", "Goods delivered conform to specifications", "Any Parallel Salam is independent"]),
-    sign("agency", "Appoint customer as sales agent", "SALES_AGENCY", ["shariah_delivery"]),
+    sign("agency", "Appoint customer as sales agent", "SALES_AGENCY", ["delivery"]),
     activate(["agency"], "Resale proceeds due at maturity."),
   ],
 };
@@ -634,7 +621,7 @@ const RUNNING_MUSHARAKAH: ProductDef = {
     if (!(r > 0 && r < 100)) e.push("A profit-sharing ratio between 0% and 100% must be agreed.");
     return e;
   },
-  documents: [{ code: "RUNNING_MUSHARAKAH_AGREEMENT", title: "Running Musharakah Agreement", signers: [CUSTOMER_SIGN, BANK_SIGN_A, BANK_SIGN_B] }],
+  documents: [{ code: "RUNNING_MUSHARAKAH_AGREEMENT", title: "Running Musharakah Agreement", signers: AGREEMENT }],
   steps: () => [
     sign("agreement", "Execute Running Musharakah Agreement", "RUNNING_MUSHARAKAH_AGREEMENT", []),
     evidence("stock_report", "Baseline stock & business inspection", ["agreement"], {
@@ -672,7 +659,7 @@ export function securitySteps(c: CaseShape, after: string[]): StepSpec[] {
         dependsOn: ["security_docs"],
         note: "SME PR R-13 & Annexure II: only perfected charges qualify for FSV benefit.",
         action: {
-          roles: ["LEGAL"],
+          roles: ["RCAD"],
           fields: [
             { name: "registrationRef", label: "Registration / lien reference", type: "text" },
             { name: "registeredWith", label: "Registered with (SECP / Sub-Registrar / Bank)", type: "text" },

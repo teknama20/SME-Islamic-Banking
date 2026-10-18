@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { verifyChain } from "../src/lib/audit";
 import { db } from "../src/lib/db";
-import { autopilot } from "../src/lib/demo/autopilot";
+import { autopilot, shariahSignOff } from "../src/lib/demo/autopilot";
 import { createCase } from "../src/lib/engine/cases";
 import { verifyDocumentIntegrity } from "../src/lib/engine/documents";
 import { actor, fixture, future } from "./helpers";
@@ -40,6 +40,12 @@ describe("product workflows run end to end", () => {
       });
       const done = await autopilot(kase.id, "ACTIVE");
       expect(done.stage).toBe("ACTIVE");
+      expect(done.shariahReviewStatus).toBe("PENDING");
+      await shariahSignOff(kase.id);
+      // every execution actor is in the simple loop: RCAD, RM, TL, UH, customer
+      const actors = await db.auditEvent.findMany({ where: { caseId: kase.id, eventType: { in: ["DOCUMENT_SIGNED", "STEP_COMPLETED", "EVIDENCE_CAPTURED", "EVIDENCE_VERIFIED", "DISBURSEMENT_INITIATED", "DISBURSEMENT_AUTHORISED"] } }, select: { actorRole: true } });
+      const loopRoles = new Set(["RCAD", "RM", "TEAM_LEADER", "UNIT_HEAD", "CUSTOMER_SIGNATORY", "CUSTOMER_USER", "GUARANTOR"]);
+      expect([...new Set(actors.map((a) => a.actorRole))].filter((r) => !loopRoles.has(r))).toEqual([]);
 
       const steps = await db.executionStep.findMany({ where: { caseId: kase.id } });
       expect(steps.every((s) => s.status === "DONE")).toBe(true);
@@ -52,4 +58,26 @@ describe("product workflows run end to end", () => {
       expect((await verifyChain(f.tenant.id)).ok).toBe(true);
     });
   }
+});
+
+describe("routing", () => {
+  it("'RM' in a signing or evidence slot means the case's own RM (second RM in the same team)", async () => {
+    const f = await fixture();
+    const { seedCustomer } = await import("../src/lib/demo/seed");
+    const cust = await seedCustomer(db, f.tenant.id, f.userIds["rm.sara"], {
+      legalName: "Second RM Traders", legalForm: "PARTNERSHIP", ntn: "7654321-0", sector: "Wholesale & retail trade", city: "Lahore", address: "2 Test Road",
+      annualTurnover: 50 * M, establishedOn: new Date("2018-01-01"), kycCleared: true,
+      people: [{ fullName: "Partner One", cnic: "35202-2222222-2", role: "PARTNER", sharePct: 100 }],
+      users: [{ username: `${f.code.toLowerCase()}.second`, fullName: "Partner One", role: "CUSTOMER_SIGNATORY" }],
+    });
+    const kase = await createCase(await actor("rm.sara"), {
+      customerId: cust.id, productCode: "MURABAHA", purpose: "Stock purchase", amount: 3 * M, tenorMonths: 6, profitRate: 15, repayment: "MONTHLY",
+      securityType: "SECURED", collateral: "Hypothecation", structure: { assetDescription: "Rice bags", quantity: "100 MT", supplierName: "Mills Ltd", quotationRef: "Q", deliveryLocation: "Lahore", purchaseMode: "CUSTOMER_AGENT" },
+    });
+    expect((await autopilot(kase.id, "ACTIVE")).stage).toBe("ACTIVE");
+    const rmSigs = await db.signature.findMany({ where: { document: { caseId: kase.id }, signerRole: "RM" } });
+    expect(rmSigs.every((s) => s.signerId === f.userIds["rm.sara"])).toBe(true);
+    const notified = await db.notification.findMany({ where: { userId: f.userIds["rm.ali"], link: { contains: kase.id } } });
+    expect(notified).toHaveLength(0);
+  });
 });

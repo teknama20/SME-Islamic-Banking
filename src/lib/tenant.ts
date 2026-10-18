@@ -1,5 +1,5 @@
 // Per-bank configuration (white-label): approval matrix, security policy, TAT.
-import type { BankRole } from "./rbac";
+import type { BankRole, Track } from "./rbac";
 
 export type ApprovalLevel = { role: BankRole; limit: number | null };
 
@@ -9,7 +9,8 @@ export type TenantSettings = {
   /** Clean facilities above this amount need at least `cleanMinApprover`. */
   cleanEscalationAmount: number;
   cleanMinApprover: BankRole;
-  /** Credit/Risk concurrence is always required; Trade only where the product needs it. */
+  /** Pre-sanction review tracks in addition to RCAD (Trade applies to trade-based modes only). */
+  reviewTracks: Track[];
   mfaRequired: boolean;
   sessionIdleMinutes: number;
   sessionMaxHours: number;
@@ -31,6 +32,7 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   ],
   cleanEscalationAmount: 10_000_000,
   cleanMinApprover: "REGIONAL_HEAD",
+  reviewTracks: ["CREDIT"],
   mfaRequired: true,
   sessionIdleMinutes: 15,
   sessionMaxHours: 10,

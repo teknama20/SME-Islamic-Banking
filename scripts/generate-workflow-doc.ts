@@ -6,6 +6,7 @@ import path from "node:path";
 import { EVIDENCE_LABELS, TRACK_CHECKLISTS, TRACK_LABELS } from "../src/lib/constants";
 import { COMMON_DOCS, PRODUCTS, buildExecutionPlan } from "../src/lib/products/catalog";
 import type { DocSpec, StepSpec } from "../src/lib/products/types";
+import { SHARIAH_REVIEW_CHECKLIST } from "../src/lib/engine/execution";
 import { TRACK_ROLE, roleLabel, type Track } from "../src/lib/rbac";
 import { DEFAULT_SETTINGS } from "../src/lib/tenant";
 
@@ -16,12 +17,12 @@ const signers = (d: DocSpec) => d.signers.map((s, i) => `${i + 1}. ${s.capacity}
 function who(s: StepSpec, docs: DocSpec[]) {
   if (s.kind === "SIGN") return signers(docs.find((d) => d.code === s.docCode)!);
   if (s.kind === "EVIDENCE") return `Capture: ${s.evidence!.capturers.map(roleLabel).join(", ")}<br>Verify: ${s.evidence!.verifiers.map(roleLabel).join(", ")}`;
-  if (s.kind === "ACTION") return s.action!.effect === "DISBURSE" ? `Maker: ${s.action!.roles.map(roleLabel).join(", ")}<br>Checker: Operations / Unit Head / Regional Head (different person)` : s.action!.roles.map(roleLabel).join(", ");
+  if (s.kind === "ACTION") return s.action!.effect === "DISBURSE" ? `Maker: ${s.action!.roles.map(roleLabel).join(", ")}<br>Checker: Team Leader / Unit Head` : s.action!.roles.map(roleLabel).join(", ");
   return s.check!.roles.map(roleLabel).join(", ");
 }
 
 function controls(s: StepSpec) {
-  if (s.kind === "SIGN") return "OTP + typed full name + consent + GPS; seal bound to SHA-256 of text; strict slot order";
+  if (s.kind === "SIGN") return "Loop: RCAD prepares → bank → customer → RCAD/RM verifies; OTP + typed name + consent + GPS; seal bound to SHA-256 of text";
   if (s.kind === "EVIDENCE") return `${s.evidence!.categories.map((c) => EVIDENCE_LABELS[c]).join(" / ")}; min ${s.evidence!.minItems}; ${s.evidence!.requireGps ? "GPS mandatory; " : ""}capturer ≠ verifier. Checks: ${s.evidence!.checklist.join("; ")}`;
   if (s.kind === "ACTION") return s.action!.effect === "DISBURSE" ? "Maker-checker; cumulative payments ≤ sanctioned amount" : s.action!.effect === "ACTIVATE" ? "All other steps complete; schedule fixed" : s.action!.fields.map((f) => f.label).join(", ");
   return s.check!.checklist.join("; ");
@@ -33,18 +34,23 @@ out("> Generated from `src/lib/products/catalog.ts` by `npm run docs:workflows`.
 out();
 out("## 1. Common lifecycle (all products)");
 out();
+out("The documentation of every transaction runs in one simple loop:");
+out();
+out("> **RCAD prepares & vets → RM / Team Leader / Unit Head sign → Customer (or Guarantor) signs → RCAD / RM verifies** — repeated for each document and each evidence item the product requires. **Shariah reviews the complete file at the end, after disbursement.**");
+out();
 out("| # | Stage | What happens | Who acts / signs off | Controls |");
 out("|---|---|---|---|---|");
 out("| 1 | Onboarding | SME profile, owners/UBOs, geo-tagged premises, KYC documents | RM creates · Customer uploads · **RCAD clears KYC/CDD** | SBP SME classification (Part-I); e-CIB (R-7); related-party flag (R-11); RM cannot clear own customer |");
-out("| 2 | Request | Product, purpose, amount, tenor, pricing, security, product structure | **RM** (maker) | Product terms; Shariah preconditions; R-5 per-party, R-9 clean cap, R-13 security; prohibited sectors |");
+out("| 2 | Request | Product, purpose, amount, tenor, pricing, security, product structure | **RM** | Product terms; Shariah preconditions checked automatically; R-5, R-9, R-13; prohibited sectors |");
 out("| 3 | Submission | CPTM serial issued; customer auto-acknowledged; TAT clock starts | RM | R-19 CPTM; R-16 15 working-day TAT |");
-out(`| 4 | Clearances (parallel) | ${(Object.keys(TRACK_LABELS) as Track[]).map((t) => TRACK_LABELS[t]).join("; ")} | ${(Object.keys(TRACK_ROLE) as Track[]).map((t) => roleLabel(TRACK_ROLE[t])).join(" · ")} | Every checklist item confirmed; any track can return to RM |`);
-out(`| 5 | Approval | Delegated authority by amount | ${DEFAULT_SETTINGS.approvalMatrix.map((l, i) => `${roleLabel(l.role)}${i === 0 ? " (recommends)" : ` ≤ PKR ${(l.limit! / 1e6).toFixed(0)}m`}`).join(" → ")} | Initiator cannot approve; one level per person; approver must cover the case's region; personal limits; clean > PKR ${DEFAULT_SETTINGS.cleanEscalationAmount / 1e6}m escalates to ${roleLabel(DEFAULT_SETTINGS.cleanMinApprover)} |`);
-out("| 6 | Sanction & offer | Offer Letter + Key Fact Statement (English/Urdu) generated from approved templates | **Bank signatory (Cat. A)** signs offer → RM issues | Template must be Shariah- and Legal-approved; R-12 bilingual disclosure |");
-out("| 7 | Acceptance | Customer reviews and e-signs offer and KFS (or declines with reason) | **Customer authorised signatory** | OTP, typed name, consent, GPS, IP, device |");
-out("| 8 | Execution | Product-specific sequence below | Customer, guarantor, bank signatories, Operations, Shariah, Legal, Trade, RCAD | Dependencies enforce Shariah ordering; evidence vault; four-eyes |");
-out("| 9 | Activation | Facility booked; repayment / rental / unit schedule fixed | **Operations** | All steps complete |");
-out("| 10 | Monitoring & closure | Repayments, DPD, classification & provisioning, closure | Operations · Credit/Risk | R-17 / Annexure I & II; R-18 restructuring rules |");
+out(`| 4 | Review | ${["RCAD", ...DEFAULT_SETTINGS.reviewTracks].map((t) => TRACK_LABELS[t as Track]).join("; ")} (Trade / Legal / pre-sanction Shariah can be enabled per bank) | ${["RCAD", ...DEFAULT_SETTINGS.reviewTracks].map((t) => roleLabel(TRACK_ROLE[t as Track])).join(" · ")} | Every checklist item confirmed; any reviewer can return to RM |`);
+out(`| 5 | Approval | Delegated authority by amount | ${DEFAULT_SETTINGS.approvalMatrix.map((l, i) => `${roleLabel(l.role)}${i === 0 ? " (recommends)" : ` ≤ PKR ${(l.limit! / 1e6).toFixed(0)}m`}`).join(" → ")} | Initiator cannot approve; one level per person; regional scope; personal limits |`);
+out("| 6 | Offer (loop) | Offer Letter + Key Fact Statement (English/Urdu) | **RCAD** prepares → **RM / TL / UH** signs → offer reaches the customer automatically → **Customer** accepts → **RCAD / RM** verifies | Approved templates only; R-12 bilingual disclosure |");
+out("| 7 | Documentation (loop) | Product agreements in Shariah order (table per product below) | RCAD → RM / TL / UH → Customer / Guarantor → RCAD / RM | OTP, typed name, consent, GPS; seal bound to document hash; four eyes on bank signatures |");
+out("| 8 | Evidence (loop) | Purchase / possession / delivery / title / Takaful evidence | **Customer / RM** capture → **RCAD / RM** verify (never the capturer) | GPS mandatory where possession matters; hashed, encrypted, watermarked |");
+out("| 9 | Disbursement | Payment to supplier / vendor / contractor | **RCAD** prepares (maker) → **Team Leader / Unit Head** authorises (checker) | Cumulative payments ≤ sanctioned amount; waits for security perfection |");
+out("| 10 | Activation & monitoring | Facility booked; schedule fixed; repayments, DPD, classification | **RCAD** | R-17 / Annexure I & II; R-18 |");
+out("| 11 | **Shariah review (final)** | Complete file reviewed after disbursement | **Shariah Compliance Officer** | Compliant, or non-compliant → rectification and purification of income to charity |");
 out("| — | Audit | Read-only case files, chain verification, execution pack, evidence bundle | **Internal Audit** | Hash-chained, append-only audit trail |");
 out();
 out("### Clearance checklists");
@@ -60,7 +66,7 @@ out("| Document | Signing order |");
 out("|---|---|");
 for (const d of COMMON_DOCS) out(`| ${d.title} | ${signers(d)} |`);
 out();
-out("Personal Guarantee is added when a guarantor is named; charge documents and the *Perfect security* step (Legal) are added for secured facilities. All disbursement steps wait for security perfection.");
+out("Personal Guarantee is added when a guarantor is named; charge documents and the *Perfect security* step (RCAD) are added for secured facilities. All disbursement steps wait for security perfection.");
 
 let n = 2;
 for (const p of PRODUCTS) {
@@ -89,7 +95,8 @@ for (const p of PRODUCTS) {
   out();
   out("| # | Step | Type | Who | Controls | Unlocks after |");
   out("|---|---|---|---|---|---|");
-  plan.forEach((s, i) => out(`| ${i + 1} | ${s.title}${s.note ? `<br><sub>${s.note}</sub>` : ""} | ${s.kind} | ${who(s, docs)} | ${controls(s)} | ${s.dependsOn.map((d) => plan.find((x) => x.key === d)?.title ?? d).join("; ") || "offer acceptance"} |`));
+  [...plan].forEach((s, i) => out(`| ${i + 1} | ${s.title}${s.note ? `<br><sub>${s.note}</sub>` : ""} | ${s.kind} | ${who(s, docs)} | ${controls(s)} | ${s.dependsOn.map((d) => plan.find((x) => x.key === d)?.title ?? d).join("; ") || "offer acceptance"} |`));
+  out(`| ${plan.length + 1} | **Post-disbursement Shariah review** | CHECK | ${roleLabel("SHARIAH")} | ${SHARIAH_REVIEW_CHECKLIST.join("; ")} | Book facility in core banking & activate schedule |`);
 }
 
 out();

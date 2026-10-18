@@ -15,8 +15,8 @@ import { storeFile } from "../storage";
 import { generateDocument, notifyNextSigner, OFFER_DOCS } from "./documents";
 import { customerUsers, notify, usersForRoles } from "./notify";
 
-/** Second pair of eyes for payments. */
-export const DISBURSEMENT_CHECKERS = ["OPERATIONS", "UNIT_HEAD", "REGIONAL_HEAD"];
+/** Second pair of eyes for payments (RCAD prepares, Team Leader / Unit Head authorises). */
+export const DISBURSEMENT_CHECKERS = ["TEAM_LEADER", "UNIT_HEAD"];
 
 export function caseShape(c: FinancingCase) {
   return {
@@ -67,14 +67,14 @@ async function announceStep(tx: Tx, actor: Actor, kase: FinancingCase, st: Execu
     await notifyNextSigner(tx, kase, doc, plan[0]);
   } else if (spec.kind === "EVIDENCE" && spec.evidence) {
     const bankRoles = spec.evidence.capturers.filter((r) => !isCustomerRole(r));
-    const bank = await usersForRoles(tx, kase.tenantId, bankRoles, kase.orgPath);
+    const bank = await usersForRoles(tx, kase.tenantId, bankRoles, kase);
     const cust = spec.evidence.capturers.some(isCustomerRole) ? await customerUsers(tx, kase.customerId, spec.evidence.capturers.filter(isCustomerRole)) : [];
     await notify(tx, kase.tenantId, [...bank.map((u) => u.id), ...cust.map((u) => u.id)], "Evidence required", st.title, link);
   } else if (spec.kind === "ACTION" && spec.action) {
-    const users = await usersForRoles(tx, kase.tenantId, spec.action.roles, kase.orgPath);
+    const users = await usersForRoles(tx, kase.tenantId, spec.action.roles, kase);
     await notify(tx, kase.tenantId, users.map((u) => u.id), "Action required", st.title, link);
   } else if (spec.kind === "CHECK" && spec.check) {
-    const users = await usersForRoles(tx, kase.tenantId, spec.check.roles, kase.orgPath);
+    const users = await usersForRoles(tx, kase.tenantId, spec.check.roles, kase);
     await notify(tx, kase.tenantId, users.map((u) => u.id), "Shariah check required", st.title, link);
   }
 }
@@ -145,7 +145,7 @@ export async function completeAction(actor: Actor, stepId: string, fields: Recor
     if (spec.action.effect === "DISBURSE" && outcome.pendingAuthorisation) {
       // checker leg
       if (!authorise) throw new RuleError("This payment is awaiting authorisation by a second officer.");
-      if (!DISBURSEMENT_CHECKERS.includes(actor.role)) throw new AccessError("Only Operations / Unit Head / Regional Head can authorise payments.");
+      if (!DISBURSEMENT_CHECKERS.includes(actor.role)) throw new AccessError("Only a Team Leader or Unit Head can authorise payments.");
       if (outcome.makerId === actor.userId) throw new RuleError("Maker-checker: the officer who initiated the payment cannot authorise it.");
       await audit(tx, actor, {
         eventType: "DISBURSEMENT_AUTHORISED",
@@ -190,7 +190,7 @@ export async function completeAction(actor: Actor, stepId: string, fields: Recor
         entityId: st.id,
         after: pending,
       });
-      const checkers = await usersForRoles(tx, kase.tenantId, DISBURSEMENT_CHECKERS, kase.orgPath);
+      const checkers = await usersForRoles(tx, kase.tenantId, DISBURSEMENT_CHECKERS, kase);
       await notify(tx, kase.tenantId, checkers.filter((u) => u.id !== actor.userId).map((u) => u.id), "Payment authorisation required", st.title, `/cases/${kase.id}?tab=execution`);
       return;
     }
@@ -203,7 +203,7 @@ export async function completeAction(actor: Actor, stepId: string, fields: Recor
       const sched = buildSchedule({ model: product.pricing, amount: kase.amount, tenorMonths: kase.tenorMonths, profitRate: kase.profitRate, repayment: kase.repayment, startDate: activatedAt, structure: caseShape(kase).structure });
       await tx.installment.deleteMany({ where: { caseId: kase.id } });
       await tx.installment.createMany({ data: sched.lines.map((l) => ({ caseId: kase.id, ...l })) });
-      await tx.financingCase.update({ where: { id: kase.id }, data: { stage: "ACTIVE", activatedAt } });
+      await tx.financingCase.update({ where: { id: kase.id }, data: { stage: "ACTIVE", activatedAt, shariahReviewStatus: "PENDING" } });
       await markDone(tx, actor, kase, st, values);
       await audit(tx, actor, {
         eventType: "FACILITY_ACTIVATED",
@@ -218,6 +218,8 @@ export async function completeAction(actor: Actor, stepId: string, fields: Recor
       });
       const cust = await customerUsers(tx, kase.customerId);
       await notify(tx, kase.tenantId, [kase.rmId, ...cust.map((u) => u.id)], "Facility activated", `${kase.ref} is now active.`, `/cases/${kase.id}?tab=schedule`);
+      const shariah = await usersForRoles(tx, kase.tenantId, ["SHARIAH"], kase);
+      await notify(tx, kase.tenantId, shariah.map((u) => u.id), "Post-disbursement Shariah review", `${kase.ref} has been disbursed — review the complete file.`, `/cases/${kase.id}?tab=shariah`);
       return;
     }
 
@@ -310,7 +312,7 @@ export async function submitEvidence(
     });
     if (meta.stepKey) {
       const st = await tx.executionStep.findUniqueOrThrow({ where: { caseId_key: { caseId: kase.id, key: meta.stepKey } } });
-      const verifiers = await usersForRoles(tx, kase.tenantId, stepSpec(st).evidence!.verifiers, kase.orgPath);
+      const verifiers = await usersForRoles(tx, kase.tenantId, stepSpec(st).evidence!.verifiers, kase);
       await notify(tx, kase.tenantId, verifiers.filter((u) => u.id !== actor.userId).map((u) => u.id), "Evidence to verify", st.title, `/cases/${kase.id}?tab=evidence`);
     }
     return ev;
@@ -362,7 +364,7 @@ export async function verifyEvidence(actor: Actor, evidenceId: string, decision:
 
 export async function recordRepayment(actor: Actor, installmentId: string, amount: number, reference: string) {
   await db.$transaction(async (tx) => {
-    if (actor.role !== "OPERATIONS") throw new AccessError("Only Operations can post repayments.");
+    if (!["RCAD", "OPERATIONS"].includes(actor.role)) throw new AccessError("Only RCAD / Operations can post repayments.");
     const inst = await tx.installment.findUnique({ where: { id: installmentId }, include: { case: true } });
     if (!inst || inst.case.tenantId !== actor.tenantId) throw new AccessError("Instalment not found.");
     if (inst.case.stage !== "ACTIVE") throw new RuleError("Facility is not active.");
@@ -395,7 +397,7 @@ export async function recordRepayment(actor: Actor, installmentId: string, amoun
 /** Updates days-past-due (normally fed from core banking) and re-classifies per Annexure I. */
 export async function updateDaysPastDue(actor: Actor, caseId: string, dpd: number) {
   await db.$transaction(async (tx) => {
-    if (!["OPERATIONS", "CREDIT_RISK"].includes(actor.role)) throw new AccessError();
+    if (!["RCAD", "OPERATIONS", "CREDIT_RISK"].includes(actor.role)) throw new AccessError();
     const kase = await tx.financingCase.findFirst({ where: { id: caseId, tenantId: actor.tenantId } });
     if (!kase || kase.stage !== "ACTIVE") throw new RuleError("Facility is not active.");
     const classification = classifyByDpd(Math.max(0, Math.round(dpd)));
@@ -416,4 +418,49 @@ export async function updateDaysPastDue(actor: Actor, caseId: string, dpd: numbe
 
 export function docTitle(productCode: string, code: string) {
   return docSpec(getProduct(productCode), code).title;
+}
+
+// --- Post-disbursement Shariah review -------------------------------------------------
+
+export const SHARIAH_REVIEW_CHECKLIST = [
+  "Contract sequence followed (promise → purchase / co-ownership → possession → sale / lease)",
+  "Possession evidence is adequate and preceded the sale or lease",
+  "Approved model agreements used and fully executed",
+  "Price / rental fixed and disclosed; no rollover or compounding",
+  "Payment made to a genuine third-party supplier / vendor (no buy-back)",
+  "Late-payment charity undertaking in place",
+];
+
+/** Shariah reviews the complete case file after disbursement (final control). */
+export async function shariahReview(actor: Actor, caseId: string, input: { decision: "COMPLIANT" | "NON_COMPLIANT"; checklist: string[]; comments: string }) {
+  await db.$transaction(async (tx) => {
+    if (actor.role !== "SHARIAH") throw new AccessError("Only the Shariah Compliance Officer can record the Shariah review.");
+    const kase = await tx.financingCase.findFirst({ where: { id: caseId, tenantId: actor.tenantId } });
+    if (!kase) throw new AccessError("Case not found.");
+    if (kase.shariahReviewStatus !== "PENDING") throw new RuleError("The Shariah review opens after disbursement and can be recorded once.");
+    if (input.comments.trim().length < 5) throw new RuleError("Comments / Shariah Board reference are required.");
+    if (input.decision === "COMPLIANT") {
+      const missing = SHARIAH_REVIEW_CHECKLIST.filter((c) => !input.checklist.includes(c));
+      if (missing.length) throw new RuleError(`Confirm all items before marking compliant: ${missing.join("; ")}`);
+    }
+    const checklist = Object.fromEntries(SHARIAH_REVIEW_CHECKLIST.map((c) => [c, input.checklist.includes(c)]));
+    await tx.financingCase.update({
+      where: { id: caseId },
+      data: { shariahReviewStatus: input.decision, shariahReviewedById: actor.userId, shariahReviewedAt: new Date(), shariahReviewComments: input.comments.trim(), shariahReviewChecklist: JSON.stringify(checklist) },
+    });
+    await audit(tx, actor, {
+      eventType: "SHARIAH_REVIEW",
+      action: input.decision === "COMPLIANT" ? "APPROVE" : "RETURN",
+      summary: `Post-disbursement Shariah review: ${input.decision === "COMPLIANT" ? "compliant" : "NON-COMPLIANT"} — ${input.comments.trim()}`,
+      caseId,
+      customerId: kase.customerId,
+      entityType: "FinancingCase",
+      entityId: caseId,
+      after: { decision: input.decision, checklist, comments: input.comments.trim() },
+    });
+    if (input.decision === "NON_COMPLIANT") {
+      const owners = await usersForRoles(tx, kase.tenantId, ["RCAD", "UNIT_HEAD"], kase);
+      await notify(tx, kase.tenantId, [kase.rmId, ...owners.map((u) => u.id)], `Shariah non-compliance on ${kase.ref}`, "Rectify per Shariah instructions; income from the non-compliant portion is to be purified to charity.", `/cases/${caseId}?tab=shariah`);
+    }
+  });
 }

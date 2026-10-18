@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { approvalAction, cancelCaseAction, clearanceAction, commentAction, dpdAction, repaymentAction, verifyEvidenceAction } from "@/app/actions/workflow";
+import { approvalAction, cancelCaseAction, clearanceAction, commentAction, dpdAction, repaymentAction, shariahReviewAction, verifyEvidenceAction } from "@/app/actions/workflow";
 import { ActionForm } from "@/components/action-form";
 import { Badge, Card, Empty, GeoLink, Hash, KeyValues, StatusBadge, fmtDate, fmtDateTime } from "@/components/ui";
 import type { Actor } from "@/lib/actor";
@@ -7,7 +7,7 @@ import { verifyChain } from "@/lib/audit";
 import { EVIDENCE_LABELS, REPAYMENT_LABELS, RISK_RATINGS, STAGE_LABELS, STAGE_PATH, TRACK_CHECKLISTS, TRACK_LABELS, type Stage } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { evaluateCompliance } from "@/lib/engine/cases";
-import { stepSpec } from "@/lib/engine/execution";
+import { SHARIAH_REVIEW_CHECKLIST, stepSpec } from "@/lib/engine/execution";
 import { buildSchedule, pkr } from "@/lib/pricing";
 import { getProduct } from "@/lib/products/catalog";
 import type { SignerSlot } from "@/lib/products/types";
@@ -491,14 +491,14 @@ export function ScheduleTab({ actor, data }: P) {
             <p className="mt-2 text-xs text-muted">
               Provision rate before FSV benefit: {(PROVISION_RATE[kase.classification as Classification] * 100).toFixed(0)}% (Annexure I). Outstanding {pkr(outstanding)}.
             </p>
-            {["OPERATIONS", "CREDIT_RISK"].includes(actor.role) && (
+            {["RCAD", "OPERATIONS", "CREDIT_RISK"].includes(actor.role) && (
               <ActionForm action={dpdAction.bind(null, kase.id)} submitLabel="Update DPD" submitClass="btn btn-sm" className="mt-3">
                 <input name="dpd" type="number" min={0} defaultValue={kase.daysPastDue} className="input" />
                 <p className="text-xs text-muted">Normally fed nightly from core banking.</p>
               </ActionForm>
             )}
           </Card>
-          {actor.role === "OPERATIONS" && firstDue && (
+          {["RCAD", "OPERATIONS"].includes(actor.role) && firstDue && (
             <Card title={`Post repayment — instalment #${firstDue.seq}`} className="lg:col-span-2">
               <ActionForm action={repaymentAction.bind(null, firstDue.id)} submitLabel="Post receipt" geo>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -604,5 +604,76 @@ export async function AuditTab({ actor, data }: P) {
         </table>
       </div>
     </Card>
+  );
+}
+
+// --- Post-disbursement Shariah review -----------------------------------------------------
+
+export function ShariahTab({ actor, data }: P) {
+  const { kase, people } = data;
+  const status = kase.shariahReviewStatus;
+  const docs = kase.documents.filter((d) => d.status !== "VOID");
+  const executed = docs.filter((d) => d.status === "EXECUTED").length;
+  const verified = kase.evidence.filter((e) => e.status === "VERIFIED").length;
+  const stepsDone = kase.steps.filter((s) => s.status === "DONE").length;
+  const recorded = JSON.parse(kase.shariahReviewChecklist || "{}") as Record<string, boolean>;
+  if (status === "NOT_DUE") return <Empty>The Shariah Compliance Officer reviews the complete file after disbursement and activation.</Empty>;
+  return (
+    <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
+      <Card title="File summary for review">
+        <KeyValues
+          items={[
+            ["Execution steps", `${stepsDone} / ${kase.steps.length} complete`],
+            ["Documents executed", `${executed} / ${docs.length}`],
+            ["Evidence verified", `${verified} item(s)`],
+            ["Activated", fmtDateTime(kase.activatedAt)],
+          ]}
+        />
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link href={`/cases/${kase.id}?tab=execution`} className="btn btn-sm">Execution sequence</Link>
+          <Link href={`/cases/${kase.id}?tab=evidence`} className="btn btn-sm">Possession evidence</Link>
+          <Link href={`/cases/${kase.id}?tab=documents`} className="btn btn-sm">Executed documents</Link>
+          <Link href={`/cases/${kase.id}/pack`} className="btn btn-sm">Execution pack</Link>
+        </div>
+      </Card>
+      <Card title="Post-disbursement Shariah review" actions={<StatusBadge status={status === "COMPLIANT" ? "PASS" : status === "NON_COMPLIANT" ? "FAIL" : "PENDING"} label={status.replace("_", " ").toLowerCase()} />}>
+        {status === "PENDING" && actor.role === "SHARIAH" ? (
+          <ActionForm
+            action={shariahReviewAction.bind(null, kase.id)}
+            geo
+            buttons={[
+              { label: "Mark Shariah-compliant", name: "decision", value: "COMPLIANT" },
+              { label: "Non-compliant — require rectification", name: "decision", value: "NON_COMPLIANT", className: "btn btn-danger" },
+            ]}
+          >
+            <fieldset className="space-y-1.5">
+              {SHARIAH_REVIEW_CHECKLIST.map((c) => (
+                <label key={c} className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" name="checklist" value={c} className="mt-1" /> {c}
+                </label>
+              ))}
+            </fieldset>
+            <textarea name="comments" rows={3} className="input" placeholder="Observations / Shariah Board or fatwa reference" required />
+            <p className="text-xs text-muted">If non-compliant, RM, RCAD and Unit Head are notified; income from the non-compliant portion is purified to charity.</p>
+          </ActionForm>
+        ) : status === "PENDING" ? (
+          <p className="text-sm text-muted">Awaiting the Shariah Compliance Officer.</p>
+        ) : (
+          <div className="space-y-2 text-sm">
+            <div className="text-muted">
+              {people[kase.shariahReviewedById ?? ""]?.fullName ?? "Shariah Compliance Officer"} · {fmtDateTime(kase.shariahReviewedAt)}
+            </div>
+            <p>{kase.shariahReviewComments}</p>
+            <ul className="space-y-1 text-xs text-muted">
+              {Object.entries(recorded).map(([k, v]) => (
+                <li key={k}>
+                  {v ? "☑" : "☐"} {k}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </Card>
+    </div>
   );
 }

@@ -196,15 +196,17 @@ ${FOOTER}`,
   },
   {
     code: "MURABAHA_DECLARATION",
-    title: "Declaration & Offer to Purchase / Bank's Acceptance",
-    body: `# Declaration & Offer to Purchase (Murabaha Sale)
-To: {{bank.legalName}}
+    title: "Murabaha Sale — Bank's Offer & Customer's Acceptance",
+    body: `# Murabaha Sale Agreement (Offer & Acceptance)
+${PARTIES}
 
-We, **{{customer.legalName}}**, acting as the Bank's agent, declare that we have purchased the following asset on behalf of the Bank and that it is in the Bank's (constructive) possession, as evidenced on the platform:
+## 1. Ownership & possession
+The Customer, acting as the Bank's agent (or the Bank directly), has purchased the following asset for the Bank. The Bank's ownership and physical / constructive possession have been verified on the platform from geo-tagged, time-stamped evidence before this sale:
 
 > {{s.assetDescription}} — {{s.quantity}} — supplied by {{s.supplierName}}
 
-We now offer to purchase the above asset from the Bank on Murabaha basis:
+## 2. Bank's offer to sell
+The Bank hereby offers to sell the above asset to the Customer on Murabaha basis:
 
 | Term | Amount |
 |---|---|
@@ -213,11 +215,11 @@ We now offer to purchase the above asset from the Bank on Murabaha basis:
 | **Murabaha (sale) price** | **{{pricing.totalPayable}}** |
 | Payment | {{case.repayment}}, {{pricing.instalments}} instalment(s) |
 
-## Payment schedule
+## 3. Payment schedule
 {{pricing.schedule}}
 
-## Bank's acceptance
-By its electronic signature below, the Bank accepts this offer and sells the asset to the Customer at the Murabaha price above. Ownership and risk pass to the Customer upon acceptance. The price shall not be increased thereafter.
+## 4. Customer's acceptance
+By its electronic signature below, the Customer accepts the Bank's offer and purchases the asset at the Murabaha price above. Ownership and risk pass to the Customer upon acceptance. The price is fixed and shall not be increased thereafter; late payment is subject only to the charity undertaking.
 
 ${FOOTER}`,
   },

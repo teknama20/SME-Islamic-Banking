@@ -241,6 +241,12 @@ model FinancingCase {
   acceptedAt      DateTime?
   activatedAt     DateTime?
   closedAt        DateTime?
+  // Post-disbursement Shariah review (final control, after activation)
+  shariahReviewStatus    String    @default("NOT_DUE") // NOT_DUE | PENDING | COMPLIANT | NON_COMPLIANT
+  shariahReviewedById    String?
+  shariahReviewedAt      DateTime?
+  shariahReviewComments  String    @default("")
+  shariahReviewChecklist String    @default("{}")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -355,7 +361,7 @@ model Signature {
   documentId  String
   document    Document @relation(fields: [documentId], references: [id])
   slot        Int
-  party       String // CUSTOMER | GUARANTOR | BANK
+  party       String // RCAD | BANK | CUSTOMER | GUARANTOR
   capacity    String // e.g. "Customer — Authorised Signatory"
   signerId    String
   signerName  String // name as typed by the signer

@@ -43,6 +43,7 @@ export async function settingsAction(_: ActionState, fd: FormData) {
         maxFailedLogins: Math.min(10, Math.max(3, Number(str(fd, "maxFailedLogins")) || before.maxFailedLogins)),
         otpDelivery: str(fd, "otpDelivery") === "sms" ? "sms" : "screen",
         tatWorkingDays: Math.min(15, Math.max(1, Number(str(fd, "tatWorkingDays")) || before.tatWorkingDays)),
+        reviewTracks: fd.getAll("reviewTracks").map(String).filter((t): t is "CREDIT" | "TRADE" | "LEGAL" | "SHARIAH" => ["CREDIT", "TRADE", "LEGAL", "SHARIAH"].includes(t)),
       };
       await tx.tenant.update({ where: { id: actor.tenantId }, data: { settings: JSON.stringify(after) } });
       await audit(tx, actor, { eventType: "TENANT_SETTINGS_UPDATED", action: "UPDATE", summary: "Security policy / approval matrix updated", entityType: "Tenant", entityId: actor.tenantId, before, after });

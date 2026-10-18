@@ -7,7 +7,7 @@ import { autopilot, step } from "../src/lib/demo/autopilot";
 import { demoPng } from "../src/lib/demo/png";
 import { createCase, decideApproval, decideClearance, submitCase } from "../src/lib/engine/cases";
 import { requestSigningOtp, signDocument } from "../src/lib/engine/documents";
-import { completeAction, submitEvidence, verifyEvidence } from "../src/lib/engine/execution";
+import { SHARIAH_REVIEW_CHECKLIST, completeAction, shariahReview, submitEvidence, verifyEvidence } from "../src/lib/engine/execution";
 import { actor, fixture } from "./helpers";
 
 const M = 1_000_000;
@@ -77,50 +77,76 @@ describe("segregation of duties", () => {
 });
 
 describe("signing & execution controls", () => {
-  it("enforces signer order, identity, OTP and typed name", async () => {
+  it("documentation loop: RCAD → bank → customer → RCAD/RM, with OTP and typed name", async () => {
     const c = await murabaha();
     await autopilot(c.id, "EXECUTION");
     const mmfa = await db.document.findFirstOrThrow({ where: { caseId: c.id, code: "MMFA" } });
-    const bankSigner = await actor("uh.gulberg");
-    await expect(requestSigningOtp(bankSigner, mmfa.id)).rejects.toThrow(/reserved for: Customer/);
-
     const ceo = await actor("ceo");
+    const rcad = await actor("rcad.officer");
+    const sign = async (a: Awaited<ReturnType<typeof actor>>) => {
+      const otp = await requestSigningOtp(a, mmfa.id);
+      await signDocument(a, mmfa.id, { challengeId: otp.challengeId, otp: otp.devCode!, typedName: a.name, consent: true, decision: "SIGNED" });
+    };
+    // 1. RCAD prepares first — nobody else can jump the queue
+    await expect(requestSigningOtp(ceo, mmfa.id)).rejects.toThrow(/reserved for: RCAD/);
+    await sign(rcad);
+    // 2. bank signatories (RM allowed), four eyes between the two bank signatures
+    await expect(requestSigningOtp(ceo, mmfa.id)).rejects.toThrow(/reserved for: Bank/);
+    const rm = await actor("rm.ali");
+    await sign(rm);
+    await expect(requestSigningOtp(rm, mmfa.id)).rejects.toThrow(/reserved for: Bank — Second/);
+    await sign(await actor("tl.gulberg"));
+    // 3. customer: wrong OTP and wrong name are refused
     const otp = await requestSigningOtp(ceo, mmfa.id);
-    await expect(signDocument(ceo, mmfa.id, { challengeId: otp.challengeId, otp: "000000" === otp.devCode ? "111111" : "000000", typedName: ceo.name, consent: true, decision: "SIGNED" })).rejects.toThrow(/Incorrect OTP/);
+    await expect(signDocument(ceo, mmfa.id, { challengeId: otp.challengeId, otp: otp.devCode === "000000" ? "111111" : "000000", typedName: ceo.name, consent: true, decision: "SIGNED" })).rejects.toThrow(/Incorrect OTP/);
     await expect(signDocument(ceo, mmfa.id, { challengeId: otp.challengeId, otp: otp.devCode!, typedName: "Someone Else", consent: true, decision: "SIGNED" })).rejects.toThrow(/full name/);
     await signDocument(ceo, mmfa.id, { challengeId: otp.challengeId, otp: otp.devCode!, typedName: ceo.name, consent: true, decision: "SIGNED" });
-    await expect(requestSigningOtp(ceo, mmfa.id)).rejects.toThrow(/reserved for: Bank/);
-    const attempts = await db.otpChallenge.findUniqueOrThrow({ where: { id: otp.challengeId } });
-    expect(attempts.attempts).toBe(1);
+    expect((await db.otpChallenge.findUniqueOrThrow({ where: { id: otp.challengeId } })).attempts).toBe(1);
+    // 4. back to RCAD / RM to verify — then the document is executed
+    await expect(requestSigningOtp(ceo, mmfa.id)).rejects.toThrow(/reserved for: RCAD \/ RM/);
+    await sign(rcad);
+    expect((await db.document.findUniqueOrThrow({ where: { id: mmfa.id } })).status).toBe("EXECUTED");
   });
 
   it("Murabaha sale cannot happen before possession; possession requires GPS; maker-checker on payment & evidence", async () => {
     const c = await murabaha();
     await autopilot(c.id, "EXECUTION");
-    // declaration document does not even exist yet
     expect(await db.document.count({ where: { caseId: c.id, code: "MURABAHA_DECLARATION" } })).toBe(0);
     const ceo = await actor("ceo");
     const meta = { caseId: c.id, stepKey: "possession", category: "POSSESSION", description: "Bales at godown", assetRef: "", clientTime: "", locationNote: "" };
     const file = { buffer: demoPng(1), name: "p.png", type: "image/png" };
     await expect(submitEvidence(ceo, meta, file)).rejects.toThrow(/Preceding steps/);
 
-    // advance until supplier payment is READY
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 40; i++) {
       const st = await db.executionStep.findUniqueOrThrow({ where: { caseId_key: { caseId: c.id, key: "supplier_payment" } } });
       if (st.status === "READY") break;
       await step(c.id, "ACTIVE");
     }
     const pay = await db.executionStep.findUniqueOrThrow({ where: { caseId_key: { caseId: c.id, key: "supplier_payment" } } });
-    const maker = await actor("ops.officer");
+    expect(pay.status).toBe("READY");
+    const maker = await actor("rcad.officer");
+    await expect(completeAction(await actor("rm.ali"), pay.id, { paymentRef: "X", amount: String(5 * M), payee: "Ginners" })).rejects.toThrow(/RCAD/);
     await expect(completeAction(maker, pay.id, { paymentRef: "X", amount: String(6 * M), payee: "Ginners" })).rejects.toThrow(/exceeds the sanctioned amount/);
     await completeAction(maker, pay.id, { paymentRef: "PAY-1", amount: String(5 * M), payee: "Ginners Ltd" });
-    await expect(completeAction(maker, pay.id, {}, true)).rejects.toThrow(/Maker-checker/);
-    await completeAction(await actor("ops.checker"), pay.id, {}, true);
+    await expect(completeAction(maker, pay.id, {}, true)).rejects.toThrow(/Team Leader or Unit Head/);
+    await completeAction(await actor("uh.gulberg"), pay.id, {}, true);
 
     await expect(submitEvidence({ ...ceo, geo: null }, meta, file)).rejects.toThrow(/GPS/);
-    const ops = await actor("ops.officer");
-    const ev = await submitEvidence(ops, meta, file);
-    await expect(verifyEvidence(ops, ev.id, "VERIFIED", "self check")).rejects.toThrow(/Maker-checker/);
+    const rm = await actor("rm.ali");
+    const ev = await submitEvidence(rm, meta, file);
+    await expect(verifyEvidence(rm, ev.id, "VERIFIED", "self check")).rejects.toThrow(/Maker-checker/);
+  });
+
+  it("offer reaches the customer automatically once the bank signs; Shariah reviews after disbursement", async () => {
+    const c = await murabaha();
+    await autopilot(c.id, "OFFERED");
+    expect((await db.financingCase.findUniqueOrThrow({ where: { id: c.id } })).offeredAt).not.toBeNull();
+    const done = await autopilot(c.id, "ACTIVE");
+    expect(done.shariahReviewStatus).toBe("PENDING");
+    await expect(shariahReview(await actor("rcad.officer"), c.id, { decision: "COMPLIANT", checklist: SHARIAH_REVIEW_CHECKLIST, comments: "not mine to do" })).rejects.toThrow(/Shariah Compliance Officer/);
+    await expect(shariahReview(await actor("shariah.officer"), c.id, { decision: "COMPLIANT", checklist: [], comments: "incomplete checklist" })).rejects.toThrow(/Confirm all items/);
+    await shariahReview(await actor("shariah.officer"), c.id, { decision: "COMPLIANT", checklist: SHARIAH_REVIEW_CHECKLIST, comments: "Sequence and possession compliant." });
+    expect((await db.financingCase.findUniqueOrThrow({ where: { id: c.id } })).shariahReviewStatus).toBe("COMPLIANT");
   });
 });
 

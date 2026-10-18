@@ -7,7 +7,7 @@ import { DISBURSEMENT_CHECKERS, stepSpec } from "./engine/execution";
 import { OFFER_DOCS } from "./engine/documents";
 import type { SignerSlot } from "./products/types";
 import { isMyTurnToSign, nextSlot } from "./queries";
-import { TRACK_ROLE, can, roleLabel, type Track } from "./rbac";
+import { TRACK_ROLE, roleLabel, type Track } from "./rbac";
 
 export type PendingCase = {
   id: string;
@@ -18,10 +18,13 @@ export type PendingCase = {
   sanctionedAt: Date | null;
   offeredAt: Date | null;
   acceptedAt: Date | null;
+  activatedAt: Date | null;
+  shariahReviewStatus: string;
+  shariahReviewedAt: Date | null;
   updatedAt: Date;
   clearances: { track: string; status: string; createdAt: Date; decidedAt: Date | null }[];
   approvals: { role: string; action: string; level: number; status: string; round: number; createdAt: Date; decidedAt: Date | null }[];
-  documents: { id: string; code: string; title: string; status: string; signerPlan: string; stepKey: string | null; createdAt: Date; signatures: { decision: string; signerId: string; signedAt: Date }[] }[];
+  documents: { id: string; code: string; title: string; status: string; signerPlan: string; stepKey: string | null; createdAt: Date; signatures: { decision: string; signerId: string; party: string; signedAt: Date }[] }[];
   steps: { id: string; key: string; title: string; status: string; config: string; outcome: string; completedAt: Date | null }[];
   evidence: { stepKey: string | null; status: string; capturedById: string }[];
   schedule: { seq: number; dueDate: Date; status: string; total: number; paidAmount: number }[];
@@ -30,8 +33,7 @@ export type PendingCase = {
 
 export type Cta =
   | { kind: "link"; label: string; href: string }
-  | { kind: "submit" }
-  | { kind: "issueOffer" };
+  | { kind: "submit" };
 
 export type PendingItem = {
   key: string;
@@ -50,7 +52,7 @@ export type PendingItem = {
 const latest = (dates: (Date | null | undefined)[]) => dates.filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null;
 
 function slotOwner(slot: SignerSlot) {
-  if (slot.party === "BANK") return { owner: slot.capacity, roles: slot.roles ?? [], party: "BANK" as const };
+  if (slot.party === "BANK" || slot.party === "RCAD") return { owner: slot.capacity, roles: slot.roles ?? [], party: "BANK" as const };
   return { owner: slot.capacity, roles: [slot.party === "GUARANTOR" ? "GUARANTOR" : "CUSTOMER_SIGNATORY"], party: "CUSTOMER" as const };
 }
 
@@ -144,31 +146,14 @@ export function computePending(actor: Actor, c: PendingCase): PendingItem[] {
       break;
     }
 
-    case "SANCTIONED": {
-      const offer = c.documents.find((d) => d.code === "OFFER_LETTER" && d.status === "ISSUED");
-      if (offer && !offer.signatures.some((s) => s.decision === "SIGNED")) {
-        const it = signDoc(offer, true, "offer-bank-sign");
-        if (it) items.push({ ...it, title: "Bank signs the offer letter" });
-      } else {
-        const mine = can(actor.role, "offer.issue") && actor.kind === "BANK";
-        items.push({
-          key: "issue-offer",
-          title: "Issue the signed offer and Key Fact Statement to the customer",
-          owner: `${roleLabel("RM")} / ${roleLabel("TEAM_LEADER")}`,
-          ownerRoles: ["RM", "TEAM_LEADER"],
-          party: "BANK",
-          since: latest([c.sanctionedAt, ...(offer?.signatures.map((s) => s.signedAt) ?? [])]),
-          mine,
-          cta: mine ? { kind: "issueOffer" } : undefined,
-        });
-      }
-      break;
-    }
-
+    case "SANCTIONED":
     case "OFFERED":
       for (const d of c.documents.filter((x) => OFFER_DOCS.includes(x.code) && x.status === "ISSUED")) {
         const it = signDoc(d, true, `offer-${d.code}`);
-        if (it) items.push({ ...it, title: d.code === "OFFER_LETTER" ? "Accept the offer letter" : "Acknowledge the Key Fact Statement (English / Urdu)" });
+        if (!it) continue;
+        const custTurn = it.party === "CUSTOMER";
+        if (custTurn && c.stage === "SANCTIONED") continue; // reaches the customer once the bank signs
+        items.push({ ...it, title: d.code === "OFFER_LETTER" ? (custTurn ? "Accept the offer letter" : `Offer letter: ${it.owner.split(" — ")[0]} to sign`) : custTurn ? "Acknowledge the Key Fact Statement (English / Urdu)" : "Key Fact Statement: RCAD to prepare" });
       }
       break;
 
@@ -210,18 +195,26 @@ export function computePending(actor: Actor, c: PendingCase): PendingItem[] {
       }
       break;
 
-    case "ACTIVE": {
+    case "ACTIVE":
+    case "CLOSED": {
+      if (c.shariahReviewStatus === "PENDING") {
+        const mine = actor.role === "SHARIAH";
+        items.push({ key: "shariah-review", title: "Post-disbursement Shariah review of the complete file", owner: roleLabel("SHARIAH"), ownerRoles: ["SHARIAH"], party: "BANK", since: c.activatedAt, mine, cta: mine ? { kind: "link", label: "Start Shariah review", href: `/cases/${c.id}?tab=shariah` } : undefined });
+      } else if (c.shariahReviewStatus === "COMPLIANT" || c.shariahReviewStatus === "NON_COMPLIANT") {
+        items.push({ key: "shariah-review", title: `Shariah review: ${c.shariahReviewStatus === "COMPLIANT" ? "compliant" : "NON-COMPLIANT — rectification required"}`, owner: roleLabel("SHARIAH"), ownerRoles: ["SHARIAH"], party: "BANK", since: c.shariahReviewedAt, mine: false, done: c.shariahReviewStatus === "COMPLIANT" });
+      }
+      if (c.stage === "CLOSED") break;
       const next = c.schedule.find((i) => i.status !== "PAID");
       if (next)
         items.push({
           key: "instalment",
           title: `Instalment #${next.seq} due ${next.dueDate.toLocaleDateString("en-GB", { timeZone: "Asia/Karachi", day: "2-digit", month: "short", year: "numeric" })}`,
-          owner: "Customer (payment) · Operations (posting)",
-          ownerRoles: ["OPERATIONS"],
+          owner: "Customer (payment) · RCAD (posting)",
+          ownerRoles: ["RCAD"],
           party: "CUSTOMER",
           since: null,
-          mine: actor.role === "OPERATIONS",
-          cta: actor.role === "OPERATIONS" ? { kind: "link", label: "Post repayment", href: `/cases/${c.id}?tab=schedule` } : { kind: "link", label: "View schedule", href: `/cases/${c.id}?tab=schedule` },
+          mine: ["RCAD", "OPERATIONS"].includes(actor.role),
+          cta: ["RCAD", "OPERATIONS"].includes(actor.role) ? { kind: "link", label: "Post repayment", href: `/cases/${c.id}?tab=schedule` } : { kind: "link", label: "View schedule", href: `/cases/${c.id}?tab=schedule` },
         });
       break;
     }

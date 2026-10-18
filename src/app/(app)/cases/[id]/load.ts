@@ -27,6 +27,7 @@ export async function loadCase(actor: Actor, id: string) {
     if (e.verifiedById) ids.add(e.verifiedById);
   });
   kase.comments.forEach((c) => ids.add(c.authorId));
+  if (kase.shariahReviewedById) ids.add(kase.shariahReviewedById);
   const users = await db.user.findMany({ where: { id: { in: [...ids] } }, select: { id: true, fullName: true, role: true } });
   const people = Object.fromEntries(users.map((u) => [u.id, u]));
   return { kase, people };

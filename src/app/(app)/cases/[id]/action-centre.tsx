@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { issueOfferAction, submitCaseAction } from "@/app/actions/workflow";
+import { submitCaseAction } from "@/app/actions/workflow";
 import { ActionForm } from "@/components/action-form";
 import { Badge, fmtAgo } from "@/components/ui";
 import type { Actor } from "@/lib/actor";
@@ -21,7 +21,7 @@ async function ownerNames(c: PendingCase & { tenantId: string; orgPath: string }
     if (it.done) continue;
     const bankRoles = it.ownerRoles.filter((r) => !["CUSTOMER_SIGNATORY", "GUARANTOR", "CUSTOMER_USER"].includes(r));
     const custRoles = it.ownerRoles.filter((r) => ["CUSTOMER_SIGNATORY", "GUARANTOR", "CUSTOMER_USER"].includes(r));
-    const bank = bankRoles.length ? await usersForRoles(db, c.tenantId, bankRoles, c.orgPath) : [];
+    const bank = bankRoles.length ? await usersForRoles(db, c.tenantId, bankRoles, c) : [];
     const cust = custRoles.length ? await db.user.findMany({ where: { customerId: c.customerId, role: { in: custRoles }, status: "ACTIVE" } }) : [];
     names[it.key] = [...bank, ...cust].map((u) => u.fullName).slice(0, 4).join(", ");
   }
@@ -87,7 +87,6 @@ export async function ActionCentre({ actor, kase, done }: { actor: Actor; kase: 
                   <ActionForm action={submitCaseAction.bind(null, kase.id)} submitLabel={kase.stage === "RETURNED" ? "Resubmit" : "Submit for review"} submitClass="btn btn-primary btn-sm" geo compact />
                 </span>
               )}
-              {!it.done && it.cta?.kind === "issueOffer" && <ActionForm action={issueOfferAction.bind(null, kase.id)} submitLabel="Issue offer to customer" submitClass="btn btn-primary btn-sm" geo compact />}
               {!it.done && !it.cta && <Badge>waiting</Badge>}
             </li>
           ))}

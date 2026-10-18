@@ -6,18 +6,16 @@ import { LoginForm } from "./login-form";
 export const metadata = { title: "Sign in — SME Islamic Banking" };
 
 const DEMO_USERS = [
+  ["rcad.officer", "RCAD (documentation)"],
   ["rm.ali", "Relationship Manager"],
   ["tl.gulberg", "Team Leader"],
   ["uh.gulberg", "Unit Head"],
   ["rh.north", "Regional Head"],
   ["ch.ahmed", "Country Head"],
-  ["rcad.officer", "RCAD"],
   ["credit.officer", "Credit / Risk"],
   ["trade.officer", "Trade"],
   ["shariah.officer", "Shariah"],
   ["legal.officer", "Legal"],
-  ["ops.officer", "Operations (maker)"],
-  ["ops.checker", "Operations (checker)"],
   ["auditor", "Internal Audit"],
   ["admin", "Administrator"],
   ["noor.ceo", "Customer signatory"],
@@ -46,6 +44,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <div className="max-w-md space-y-4">
           <h1 className="text-3xl leading-tight font-semibold">Shariah-compliant SME financing — from request to possession, signed and audited digitally.</h1>
           <ul className="space-y-2 text-sm text-white/80">
+            <li>• One simple loop: RCAD → RM / Team Leader / Unit Head → Customer → RCAD, Shariah review after disbursement</li>
             <li>• Murabaha, Tijarah, Istisna, Diminishing Musharakah, Ijarah, Salam & Musharakah workflows</li>
             <li>• SBP SME Prudential Regulations checks built in (R-5, R-7, R-9, R-11, R-16, R-17)</li>
             <li>• OTP e-signatures bound to SHA-256 document hashes (ETO 2002)</li>

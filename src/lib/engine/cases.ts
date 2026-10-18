@@ -170,7 +170,8 @@ export async function submitCase(actor: Actor, caseId: string) {
     const first = !kase.cptmNo;
     const cptmNo = kase.cptmNo ?? `CPTM-${tenant.code}-${now.toISOString().slice(0, 10).replace(/-/g, "")}-${kase.ref.slice(-5)}`;
 
-    const tracks: Track[] = ["RCAD", "CREDIT", "SHARIAH", "LEGAL", ...(product.requiresTrade ? (["TRADE"] as Track[]) : [])];
+    // RCAD always reviews; other tracks per the bank's settings (Trade only for trade-based modes).
+    const tracks = (["RCAD", ...settings.reviewTracks] as Track[]).filter((t, i, all) => all.indexOf(t) === i && (t !== "TRADE" || product.requiresTrade));
     for (const track of tracks) {
       await tx.clearance.upsert({
         where: { caseId_track: { caseId, track } },
@@ -199,7 +200,7 @@ export async function submitCase(actor: Actor, caseId: string) {
       before: { stage: kase.stage },
       after: { stage: "UNDER_REVIEW", cptmNo, compliance: regulatory.map((c) => `${c.code}:${c.status}`) },
     });
-    const reviewers = await usersForRoles(tx, actor.tenantId, tracks.map((t) => TRACK_ROLE[t]), kase.orgPath);
+    const reviewers = await usersForRoles(tx, actor.tenantId, tracks.map((t) => TRACK_ROLE[t]), kase);
     await notify(tx, actor.tenantId, reviewers.map((u) => u.id), "Clearance required", `${kase.ref} — ${product.name} for ${customer.legalName}`, `/cases/${caseId}?tab=clearances`);
     // SME PR R-19: automatic acknowledgement & status to the applicant
     const cust = await customerUsers(tx, kase.customerId);
@@ -290,7 +291,7 @@ async function openApprovals(tx: Tx, actor: Actor, kase: FinancingCase) {
     before: { stage: "UNDER_REVIEW" },
     after: { stage: "PENDING_APPROVAL", chain },
   });
-  const users = await usersForRoles(tx, kase.tenantId, [chain[0].role], kase.orgPath);
+  const users = await usersForRoles(tx, kase.tenantId, [chain[0].role], kase);
   await notify(tx, kase.tenantId, users.map((u) => u.id), "Approval required", `${kase.ref} awaits your ${chain[0].action.toLowerCase()}.`, `/cases/${kase.id}?tab=approvals`);
 }
 
@@ -344,7 +345,7 @@ export async function decideApproval(actor: Actor, caseId: string, raw: unknown)
 
     const next = await tx.approval.findFirst({ where: { caseId, status: "PENDING", round: current.round }, orderBy: { level: "asc" } });
     if (next) {
-      const users = await usersForRoles(tx, kase.tenantId, [next.role], kase.orgPath);
+      const users = await usersForRoles(tx, kase.tenantId, [next.role], kase);
       await notify(tx, kase.tenantId, users.map((u) => u.id), "Approval required", `${kase.ref} awaits your ${next.action.toLowerCase()}.`, `/cases/${caseId}?tab=approvals`);
       return;
     }
@@ -366,34 +367,8 @@ export async function decideApproval(actor: Actor, caseId: string, raw: unknown)
     const offer = await generateDocument(tx, actor, sanctioned, "OFFER_LETTER");
     await generateDocument(tx, actor, sanctioned, "KFS");
     await instantiateSteps(tx, sanctioned);
-    const signers = await usersForRoles(tx, kase.tenantId, ["UNIT_HEAD", "REGIONAL_HEAD", "COUNTRY_HEAD"], kase.orgPath);
-    await notify(tx, kase.tenantId, [kase.rmId, ...signers.map((u) => u.id)], "Offer letter ready for bank signature", kase.ref, `/documents/${offer.id}`);
-  });
-}
-
-export async function issueOffer(actor: Actor, caseId: string) {
-  if (!can(actor.role, "offer.issue")) throw new AccessError();
-  return db.$transaction(async (tx) => {
-    const kase = await tx.financingCase.findFirstOrThrow({ where: { id: caseId, tenantId: actor.tenantId } });
-    assertCaseAccess(actor, kase);
-    if (kase.stage !== "SANCTIONED") throw new RuleError("Case is not sanctioned.");
-    const offer = await tx.document.findFirst({ where: { caseId, code: "OFFER_LETTER", status: "ISSUED" }, include: { signatures: true } });
-    if (!offer || !offer.signatures.some((s) => s.party === "BANK" && s.decision === "SIGNED")) throw new RuleError("The offer letter must be signed by the bank's authorised signatory first.");
-    await tx.financingCase.update({ where: { id: caseId }, data: { stage: "OFFERED", offeredAt: new Date() } });
-    await audit(tx, actor, {
-      eventType: "OFFER_ISSUED",
-      action: "ISSUE",
-      summary: `Offer letter & Key Fact Statement issued to customer for ${kase.ref}`,
-      caseId,
-      customerId: kase.customerId,
-      entityType: "Document",
-      entityId: offer.id,
-      docHash: offer.contentHash,
-      before: { stage: "SANCTIONED" },
-      after: { stage: "OFFERED" },
-    });
-    const cust = await customerUsers(tx, kase.customerId, ["CUSTOMER_SIGNATORY"]);
-    await notify(tx, actor.tenantId, cust.map((u) => u.id), "Financing offer received", `Review and accept the offer for ${kase.ref}.`, `/cases/${caseId}?tab=documents`);
+    const rcad = await usersForRoles(tx, kase.tenantId, ["RCAD"], kase);
+    await notify(tx, kase.tenantId, [kase.rmId, ...rcad.map((u) => u.id)], "Sanctioned — prepare offer documentation", kase.ref, `/documents/${offer.id}`);
   });
 }
 

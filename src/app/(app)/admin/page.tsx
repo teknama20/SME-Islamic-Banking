@@ -93,6 +93,17 @@ export default async function AdminPage() {
                 <input type="checkbox" name="mfaRequired" defaultChecked={settings.mfaRequired} /> Require OTP at login
               </label>
             </div>
+            <fieldset className="rounded-lg border border-line p-3">
+              <legend className="label px-1">Pre-sanction reviews (RCAD always reviews)</legend>
+              <div className="flex flex-wrap gap-4 text-sm">
+                {([["CREDIT", "Credit & Risk"], ["TRADE", "Trade (trade-based modes)"], ["LEGAL", "Legal"], ["SHARIAH", "Shariah (pre-sanction)"]] as const).map(([v, l]) => (
+                  <label key={v} className="flex items-center gap-2">
+                    <input type="checkbox" name="reviewTracks" value={v} defaultChecked={settings.reviewTracks.includes(v)} /> {l}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-1 text-xs text-muted">Shariah always reviews the complete file after disbursement.</p>
+            </fieldset>
             <p className="text-xs text-muted">The Team Leader always recommends; each higher level approves up to its limit. Changes are audited with before/after values.</p>
           </ActionForm>
         </Card>
