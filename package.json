@@ -12,7 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force",
     "db:seed": "prisma db seed",
-    "setup": "npm install && prisma migrate reset --force"
+    "setup": "npm install && prisma migrate reset --force",
+    "docs:workflows": "tsx scripts/generate-workflow-doc.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

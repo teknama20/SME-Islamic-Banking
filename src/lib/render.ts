@@ -73,8 +73,10 @@ export function renderMarkdown(src: string): string {
       }
       const hasHeader = rows[1]?.every((c) => /^:?-{3,}:?$/.test(c));
       const head = hasHeader ? `<thead><tr>${rows[0].map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>` : "";
-      const body = (hasHeader ? rows.slice(2) : rows).map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("");
-      out.push(`<table>${head}<tbody>${body}</tbody></table>`);
+      // short cells (dates, amounts, percentages) stay on one line
+      const cell = (c: string) => `<td${c.replace(/\*\*/g, "").length <= 24 ? ' class="nw"' : ""}>${inline(c)}</td>`;
+      const body = (hasHeader ? rows.slice(2) : rows).map((r) => `<tr>${r.map(cell).join("")}</tr>`).join("");
+      out.push(`<div class="doc-table"><table>${head}<tbody>${body}</tbody></table></div>`);
       continue;
     }
     if (/^(-|\d+\.)\s+/.test(t)) {

@@ -115,9 +115,8 @@ export async function verifyChain(tenantId: string): Promise<ChainVerification> 
   for (const e of events) {
     if (e.seq !== expectedSeq) return { ok: false, checked: expectedSeq - 1, brokenAtSeq: expectedSeq, reason: `Event #${expectedSeq} is missing` };
     if (e.prevHash !== prev) return { ok: false, checked: e.seq - 1, brokenAtSeq: e.seq, reason: "Link to previous event does not match" };
-    const { id: _id, hash, ...rest } = e;
-    if (computeAuditHash(rest) !== hash) return { ok: false, checked: e.seq - 1, brokenAtSeq: e.seq, reason: "Event content has been altered" };
-    prev = hash;
+    if (computeAuditHash(e) !== e.hash) return { ok: false, checked: e.seq - 1, brokenAtSeq: e.seq, reason: "Event content has been altered" };
+    prev = e.hash;
     expectedSeq++;
   }
   return { ok: true, checked: events.length, headHash: prev };

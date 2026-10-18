@@ -22,7 +22,7 @@ export const ALLOWED_MIME = new Set([
 ]);
 
 function storageRoot() {
-  return path.resolve(process.env.STORAGE_DIR || "./storage");
+  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.STORAGE_DIR || "./storage");
 }
 
 export async function storeFile(

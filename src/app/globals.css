@@ -1,26 +1,203 @@
 @import "tailwindcss";
 
+/* Brand tokens. --brand / --brand-accent are overridden per tenant (white-label)
+   by the app shell from the tenant's configured colours. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --brand: #0b5d3b;
+  --brand-accent: #c8a24a;
+  --bg: #f4f6f5;
+  --surface: #ffffff;
+  --surface-2: #f8faf9;
+  --border: #dfe5e2;
+  --text: #15201b;
+  --muted: #5d6b64;
+  --ok: #157347;
+  --warn: #a15c00;
+  --bad: #b42318;
+  --info: #1f5fbf;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg: #0e1412;
+    --surface: #151d1a;
+    --surface-2: #1b2521;
+    --border: #2a3632;
+    --text: #e7eeea;
+    --muted: #9aaaa2;
+    --ok: #4cc38a;
+    --warn: #f0a945;
+    --bad: #ff7a6e;
+    --info: #7fb0ff;
   }
 }
 
+@theme inline {
+  --color-brand: var(--brand);
+  --color-accent: var(--brand-accent);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-ink: var(--text);
+  --color-muted: var(--muted);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --color-info: var(--info);
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-urdu: var(--font-nastaliq), "Noto Nastaliq Urdu", "Jameel Noori Nastaleeq", serif;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-line bg-surface p-5;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-surface px-3.5 py-2 text-sm font-medium text-ink transition hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply border-transparent bg-brand text-white hover:bg-brand hover:brightness-110;
+  }
+  .btn-danger {
+    @apply border-transparent bg-bad text-white hover:bg-bad hover:brightness-110;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs;
+  }
+  .input {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink outline-none placeholder:text-muted focus:border-brand focus:ring-2 focus:ring-brand/20;
+  }
+  .label {
+    @apply mb-1 block text-xs font-medium tracking-wide text-muted uppercase;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap;
+  }
+  .table {
+    @apply w-full text-left text-sm;
+  }
+  .table th {
+    @apply border-b border-line px-3 py-2 text-xs font-medium tracking-wide text-muted uppercase;
+  }
+  .table td {
+    @apply border-b border-line px-3 py-2.5 align-top;
+  }
+  .table tr:last-child td {
+    @apply border-b-0;
+  }
+  .link {
+    @apply font-medium text-brand underline-offset-2 hover:underline;
+  }
+  .mono {
+    @apply font-mono text-xs break-all;
+  }
+}
+
+/* Rendered legal documents */
+.doc {
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+.doc h1 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+.doc h2 {
+  font-size: 1.05rem;
+  font-weight: 650;
+  margin: 1.25rem 0 0.5rem;
+}
+.doc h3 {
+  font-weight: 600;
+  margin: 1rem 0 0.4rem;
+}
+.doc p {
+  margin: 0.5rem 0;
+}
+.doc ul,
+.doc ol {
+  margin: 0.5rem 0 0.5rem 1.4rem;
+}
+.doc ul {
+  list-style: disc;
+}
+.doc ol {
+  list-style: decimal;
+}
+.doc table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.875rem;
+}
+.doc th,
+.doc td {
+  border: 1px solid var(--border);
+  padding: 0.35rem 0.6rem;
+  text-align: start;
+}
+.doc th {
+  background: var(--surface-2);
+}
+.doc td.nw {
+  white-space: nowrap;
+}
+.doc-table {
+  overflow-x: auto;
+}
+.doc blockquote {
+  border-inline-start: 3px solid var(--brand-accent);
+  padding: 0.25rem 0.75rem;
+  margin: 0.75rem 0;
+  background: var(--surface-2);
+}
+.doc hr {
+  margin: 1.5rem 0 0.75rem;
+  border-color: var(--border);
+}
+.doc hr + p {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.doc-urdu {
+  font-family: var(--font-urdu);
+  line-height: 2.3;
+  margin: 1.25rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.75rem;
+}
+.doc-urdu ul {
+  margin: 0.5rem 1.4rem 0.5rem 0;
+}
+.doc-missing {
+  background: #fde68a;
+  color: #7c2d12;
+  padding: 0 0.25rem;
+  border-radius: 0.25rem;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .card {
+    border: none;
+    padding: 0;
+  }
+  .page-break {
+    break-before: page;
+  }
 }
