@@ -146,3 +146,10 @@ export function Hash({ value, short = true }: { value: string; short?: boolean }
     </span>
   );
 }
+
+/** "3 h ago" / "3 h" style relative time. */
+export function fmtAgo(d: Date | string, suffix = true) {
+  const mins = Math.max(0, Math.round((Date.now() - new Date(d).getTime()) / 60000));
+  const v = mins < 60 ? `${mins} min` : mins < 48 * 60 ? `${Math.round(mins / 60)} h` : `${Math.round(mins / 1440)} days`;
+  return suffix ? `${v} ago` : v;
+}

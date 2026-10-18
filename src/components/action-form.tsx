@@ -16,9 +16,11 @@ type Props = {
   resetOnSuccess?: boolean;
   /** Extra submit buttons (name/value pairs), e.g. Approve / Return. */
   buttons?: { label: string; name: string; value: string; className?: string }[];
+  /** Inline button-only form (no location status line). Errors still show. */
+  compact?: boolean;
 };
 
-export function ActionForm({ action, children, submitLabel = "Submit", submitClass = "btn btn-primary", geo = false, confirm, className = "", resetOnSuccess = false, buttons }: Props) {
+export function ActionForm({ action, children, submitLabel = "Submit", submitClass = "btn btn-primary", geo = false, confirm, className = "", resetOnSuccess = false, buttons, compact = false }: Props) {
   const [state, formAction, pending] = useActionState(action, initialState);
   const ref = useRef<HTMLFormElement>(null);
   useEffect(() => {
@@ -29,14 +31,14 @@ export function ActionForm({ action, children, submitLabel = "Submit", submitCla
     <form
       ref={ref}
       action={formAction}
-      className={`space-y-3 ${className}`}
+      className={`${compact ? "flex flex-col items-end gap-1" : "space-y-3"} ${className}`}
       onSubmit={(e) => {
         if (confirm && !window.confirm(confirm)) e.preventDefault();
       }}
     >
-      {geo && <GeoFields />}
+      {geo && <GeoFields quiet={compact} />}
       {children}
-      {state.error && <p className="rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">{state.error}</p>}
+      {state.error && <p className="max-w-md rounded-lg border border-bad/30 bg-bad/10 px-3 py-2 text-sm text-bad">{state.error}</p>}
       {state.ok && state.message && <p className="rounded-lg border border-ok/30 bg-ok/10 px-3 py-2 text-sm text-ok">{state.message}</p>}
       <div className="flex flex-wrap gap-2">
         {buttons ? (

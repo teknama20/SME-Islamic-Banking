@@ -5,6 +5,7 @@ import { STAGES, STAGE_LABELS } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { pkrMillions } from "@/lib/pricing";
 import { PRODUCTS, getProduct } from "@/lib/products/catalog";
+import { PENDING_INCLUDE, pendingSummary } from "@/lib/pending";
 import { can } from "@/lib/rbac";
 import { caseScope } from "@/lib/scope";
 
@@ -18,7 +19,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
       ...(sp.product ? { productCode: sp.product } : {}),
       ...(sp.q ? { OR: [{ ref: { contains: sp.q } }, { cptmNo: { contains: sp.q } }, { customer: { legalName: { contains: sp.q } } }] } : {}),
     },
-    include: { customer: { select: { legalName: true } }, rm: { select: { fullName: true } } },
+    include: { rm: { select: { fullName: true } }, ...PENDING_INCLUDE },
     orderBy: { updatedAt: "desc" },
     take: 200,
   });
@@ -70,6 +71,7 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
                   <th>Product</th>
                   <th className="text-right">Amount</th>
                   <th>Stage</th>
+                  <th>Pending with</th>
                   <th>TAT due</th>
                   <th>RM</th>
                 </tr>
@@ -90,6 +92,18 @@ export default async function CasesPage({ searchParams }: { searchParams: Promis
                       <td className="text-right tabular-nums">{pkrMillions(c.amount)}</td>
                       <td>
                         <StageBadge stage={c.stage} />
+                      </td>
+                      <td className="max-w-64 text-xs">
+                        {(() => {
+                          const p = pendingSummary(actor, c);
+                          return p.mine ? (
+                            <Link href={`/cases/${c.id}`} className="font-semibold text-warn hover:underline">
+                              ▶ {p.text}
+                            </Link>
+                          ) : (
+                            <span className="text-muted">{p.text}</span>
+                          );
+                        })()}
                       </td>
                       <td className={breached ? "font-medium text-bad" : "text-muted"}>{c.tatDueAt ? fmtDate(c.tatDueAt) : "—"}</td>
                       <td className="text-muted">{c.rm.fullName}</td>

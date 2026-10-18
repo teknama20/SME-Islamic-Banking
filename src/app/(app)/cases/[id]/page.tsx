@@ -6,13 +6,14 @@ import { pkr } from "@/lib/pricing";
 import { getProduct } from "@/lib/products/catalog";
 import { can } from "@/lib/rbac";
 import { SME_LABELS, type SmeCategory } from "@/lib/sbp";
+import { ActionCentre } from "./action-centre";
 import { ExecutionTab } from "./execution-tab";
 import { loadCase } from "./load";
 import { ApprovalsTab, AuditTab, ClearancesTab, DocumentsTab, EvidenceTab, OverviewTab, ScheduleTab } from "./sections";
 
-export default async function CasePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
+export default async function CasePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; done?: string }> }) {
   const { id } = await params;
-  const { tab = "overview" } = await searchParams;
+  const { tab = "overview", done } = await searchParams;
   const { actor } = await requireActor();
   const loaded = await loadCase(actor, id);
   if (!loaded) notFound();
@@ -69,6 +70,7 @@ export default async function CasePage({ params, searchParams }: { params: Promi
           )
         }
       />
+      <ActionCentre actor={actor} kase={kase} done={done} />
       <Tabs base={`/cases/${kase.id}`} current={current} tabs={tabs} />
       {current === "overview" && <OverviewTab actor={actor} data={loaded} />}
       {current === "clearances" && <ClearancesTab actor={actor} data={loaded} />}

@@ -51,6 +51,21 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
           <article className="doc" dangerouslySetInnerHTML={{ __html: renderMarkdown(doc.content) }} />
         </Card>
         <div className="space-y-6">
+          {!myTurn && slot && doc.status === "ISSUED" && (
+            <Card title="Signature status">
+              <p className="text-sm">
+                Waiting for <strong>{slot.capacity}</strong>
+                {slot.roles ? ` (${slot.roles.map(roleLabel).join(" / ")})` : ""}.
+              </p>
+              <p className="mt-1 text-xs text-muted">
+                {doc.stepKey && step?.status !== "READY"
+                  ? "This document unlocks after the preceding execution steps are completed."
+                  : ["OFFER_LETTER", "KFS"].includes(doc.code) && slot.party !== "BANK" && kase.stage === "SANCTIONED"
+                    ? "The bank will issue the offer to the customer after its authorised signatory has signed."
+                    : "The signer has been notified. Signatures are collected strictly in the order shown below."}
+              </p>
+            </Card>
+          )}
           {myTurn && slot && (
             <Card title="Your signature">
               <SignPanel

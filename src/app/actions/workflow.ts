@@ -178,7 +178,9 @@ export async function signAction(documentId: string, _: ActionState, fd: FormDat
       decision,
       reason: str(fd, "reason"),
     });
-    return decision === "SIGNED" ? "Signed successfully. Your signature is sealed to the document hash." : "You have declined this document.";
+    const doc = await db.document.findUniqueOrThrow({ where: { id: documentId }, select: { caseId: true, title: true } });
+    const msg = decision === "SIGNED" ? `You signed “${doc.title}”. Your signature is sealed to the document hash.` : `You declined “${doc.title}”.`;
+    redirect(`/cases/${doc.caseId}?done=${encodeURIComponent(msg)}`);
   });
 }
 

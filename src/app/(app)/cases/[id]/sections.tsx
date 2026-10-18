@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { approvalAction, cancelCaseAction, clearanceAction, commentAction, dpdAction, issueOfferAction, repaymentAction, submitCaseAction, verifyEvidenceAction } from "@/app/actions/workflow";
+import { approvalAction, cancelCaseAction, clearanceAction, commentAction, dpdAction, repaymentAction, verifyEvidenceAction } from "@/app/actions/workflow";
 import { ActionForm } from "@/components/action-form";
 import { Badge, Card, Empty, GeoLink, Hash, KeyValues, StatusBadge, fmtDate, fmtDateTime } from "@/components/ui";
 import type { Actor } from "@/lib/actor";
@@ -12,7 +12,7 @@ import { buildSchedule, pkr } from "@/lib/pricing";
 import { getProduct } from "@/lib/products/catalog";
 import type { SignerSlot } from "@/lib/products/types";
 import { isMyTurnToSign } from "@/lib/queries";
-import { TRACK_ROLE, can, roleLabel, type Track } from "@/lib/rbac";
+import { TRACK_ROLE, roleLabel, type Track } from "@/lib/rbac";
 import { PROVISION_RATE, type Classification } from "@/lib/sbp";
 import { parseSettings } from "@/lib/tenant";
 import type { LoadedCase } from "./load";
@@ -53,7 +53,6 @@ export async function OverviewTab({ actor, data }: P) {
     ...kase.clearances.filter((c) => c.status === "RETURNED").map((c) => ({ who: TRACK_LABELS[c.track as Track], why: c.comments, at: c.decidedAt })),
     ...kase.approvals.filter((a) => a.status === "RETURNED").map((a) => ({ who: roleLabel(a.role), why: a.comments, at: a.decidedAt })),
   ];
-  const offerSigned = kase.documents.some((d) => d.code === "OFFER_LETTER" && d.status === "ISSUED" && d.signatures.some((s) => s.party === "BANK"));
   const comments = kase.comments.filter((c) => isBank || !c.internal);
   const tenant = await db.tenant.findUniqueOrThrow({ where: { id: kase.tenantId } });
 
@@ -78,22 +77,12 @@ export async function OverviewTab({ actor, data }: P) {
             <Link href={`/cases/${kase.id}/edit`} className="btn">
               Edit request
             </Link>
-            <ActionForm action={submitCaseAction.bind(null, kase.id)} submitLabel={kase.stage === "RETURNED" ? "Resubmit for review" : "Submit for review"} geo />
             <details>
               <summary className="btn cursor-pointer">Cancel request</summary>
               <ActionForm action={cancelCaseAction.bind(null, kase.id)} submitLabel="Confirm cancellation" submitClass="btn btn-danger" className="mt-2">
                 <input name="reason" placeholder="Reason" className="input" required />
               </ActionForm>
             </details>
-          </div>
-        )}
-        {kase.stage === "SANCTIONED" && can(actor.role, "offer.issue") && (
-          <div className="mt-4 border-t border-line pt-4">
-            {offerSigned ? (
-              <ActionForm action={issueOfferAction.bind(null, kase.id)} submitLabel="Issue offer & KFS to customer" geo />
-            ) : (
-              <p className="text-sm text-muted">Waiting for the bank&apos;s authorised signatory to sign the offer letter before it can be issued.</p>
-            )}
           </div>
         )}
       </Card>
@@ -332,6 +321,7 @@ export function DocumentsTab({ actor, data }: P) {
             <tr>
               <th>Document</th>
               <th>Signatures</th>
+              <th>Waiting for</th>
               <th>Hash</th>
               <th>Status</th>
               <th />
@@ -361,6 +351,19 @@ export function DocumentsTab({ actor, data }: P) {
                         </div>
                       );
                     })}
+                  </td>
+                  <td className="text-xs">
+                    {d.status === "ISSUED" ? (
+                      myTurn ? (
+                        <Badge tone="warn">You</Badge>
+                      ) : d.stepKey && !ready.has(d.stepKey) ? (
+                        <span className="text-muted">earlier steps</span>
+                      ) : (
+                        (plan[d.signatures.filter((x) => x.decision === "SIGNED").length]?.capacity ?? "—")
+                      )
+                    ) : (
+                      <span className="text-muted">—</span>
+                    )}
                   </td>
                   <td>
                     <Hash value={d.contentHash} />

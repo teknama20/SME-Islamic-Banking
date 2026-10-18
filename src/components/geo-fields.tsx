@@ -36,7 +36,7 @@ export function useGeo(): GeoState {
 }
 
 /** Hidden GPS + device fields attached to audited submissions. */
-export function GeoFields() {
+export function GeoFields({ quiet = false }: { quiet?: boolean }) {
   const geo = useGeo();
   const device = typeof window === "undefined" ? "{}" : JSON.stringify(deviceInfo());
   return (
@@ -45,7 +45,7 @@ export function GeoFields() {
       <input type="hidden" name="geo_lng" value={geo.lng ?? ""} />
       <input type="hidden" name="geo_acc" value={geo.acc ?? ""} />
       <input type="hidden" name="device" value={device} readOnly suppressHydrationWarning />
-      <p className="text-xs text-muted">
+      <p className={quiet ? "sr-only" : "text-xs text-muted"}>
         {geo.status === "ok" && `📍 Location captured (${geo.lat!.toFixed(4)}, ${geo.lng!.toFixed(4)} ±${Math.round(geo.acc ?? 0)}m) — recorded in the audit trail`}
         {geo.status === "pending" && "📍 Acquiring location…"}
         {geo.status === "denied" && "⚠️ Location permission denied — the action will be recorded without GPS"}

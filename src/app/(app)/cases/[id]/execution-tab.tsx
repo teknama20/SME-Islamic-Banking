@@ -35,7 +35,7 @@ export function ExecutionTab({ actor, data }: { actor: Actor; data: LoadedCase }
           const doc = docsByStep[st.key];
           const evidence = kase.evidence.filter((e) => e.stepKey === st.key);
           return (
-            <li key={st.id} className={`rounded-xl border p-4 ${ready ? "border-brand/40 bg-brand/5" : "border-line"}`}>
+            <li key={st.id} id={`step-${st.key}`} className={`scroll-mt-6 rounded-xl border p-4 ${ready ? "border-brand/40 bg-brand/5" : "border-line"}`}>
               <div className="flex flex-wrap items-start gap-3">
                 <span className={`grid size-7 shrink-0 place-items-center rounded-full text-xs font-semibold ${st.status === "DONE" ? "bg-ok text-white" : ready ? "bg-brand text-white" : "bg-surface-2 text-muted"}`}>{st.status === "DONE" ? "✓" : st.seq}</span>
                 <div className="min-w-0 flex-1">
@@ -67,11 +67,13 @@ export function ExecutionTab({ actor, data }: { actor: Actor; data: LoadedCase }
                       <span className="text-xs text-muted">
                         {doc.signatures.filter((s) => s.decision === "SIGNED").length}/{(JSON.parse(doc.signerPlan) as SignerSlot[]).length} signatures
                       </span>
-                      {ready && isMyTurnToSign(actor, doc, kase, true) && (
+                      {ready && doc.status === "ISSUED" && (isMyTurnToSign(actor, doc, kase, true) ? (
                         <Link href={`/documents/${doc.id}`} className="btn btn-primary btn-sm">
-                          Review & sign
+                          Review & sign now
                         </Link>
-                      )}
+                      ) : (
+                        <span className="text-xs text-warn">Waiting for: {(JSON.parse(doc.signerPlan) as SignerSlot[])[doc.signatures.filter((x) => x.decision === "SIGNED").length]?.capacity}</span>
+                      ))}
                     </div>
                   )}
 

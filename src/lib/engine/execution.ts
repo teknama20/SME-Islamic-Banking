@@ -29,7 +29,7 @@ export function caseShape(c: FinancingCase) {
   };
 }
 
-export const stepSpec = (s: ExecutionStep) => JSON.parse(s.config) as StepSpec;
+export const stepSpec = (s: Pick<ExecutionStep, "config">) => JSON.parse(s.config) as StepSpec;
 
 export async function instantiateSteps(tx: Tx, c: FinancingCase) {
   const plan = buildExecutionPlan(getProduct(c.productCode), caseShape(c));

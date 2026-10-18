@@ -5,6 +5,7 @@ import { STAGE_LABELS, type Stage } from "@/lib/constants";
 import { db } from "@/lib/db";
 import { pkrMillions } from "@/lib/pricing";
 import { getProduct } from "@/lib/products/catalog";
+import { PENDING_INCLUDE, pendingSummary } from "@/lib/pending";
 import { getMyTasks, pipelineStats } from "@/lib/queries";
 import { can, roleLabel } from "@/lib/rbac";
 import { caseScope } from "@/lib/scope";
@@ -14,7 +15,7 @@ export default async function Dashboard() {
   const [tasks, stats, recent] = await Promise.all([
     getMyTasks(actor),
     pipelineStats(actor),
-    db.financingCase.findMany({ where: caseScope(actor), include: { customer: { select: { legalName: true } } }, orderBy: { updatedAt: "desc" }, take: 8 }),
+    db.financingCase.findMany({ where: caseScope(actor), include: { ...PENDING_INCLUDE }, orderBy: { updatedAt: "desc" }, take: 8 }),
   ]);
   const count = (s: Stage[]) => stats.byStage.filter((x) => s.includes(x.stage as Stage)).reduce((a, x) => a + x._count, 0);
   const activeAmount = stats.active.reduce((s, a) => s + a.amount, 0);
@@ -87,19 +88,25 @@ export default async function Dashboard() {
                 ))}
             </ul>
           </Card>
-          <Card title="Recently updated">
+          <Card title={isCustomer ? "My applications — where they are" : "Recently updated — where they are"}>
             <ul className="space-y-3 text-sm">
-              {recent.map((c) => (
-                <li key={c.id} className="flex items-center justify-between gap-3">
-                  <Link href={`/cases/${c.id}`} className="min-w-0">
-                    <div className="truncate font-medium">
-                      {c.ref} · {getProduct(c.productCode).name}
-                    </div>
-                    <div className="truncate text-xs text-muted">{c.customer.legalName}</div>
-                  </Link>
-                  <StageBadge stage={c.stage} />
-                </li>
-              ))}
+              {recent.map((c) => {
+                const p = pendingSummary(actor, c);
+                return (
+                  <li key={c.id}>
+                    <Link href={`/cases/${c.id}`} className="-mx-2 flex items-start justify-between gap-3 rounded-lg px-2 py-1 hover:bg-surface-2">
+                      <div className="min-w-0">
+                        <div className="truncate font-medium">
+                          {c.ref} · {getProduct(c.productCode).name}
+                        </div>
+                        <div className="truncate text-xs text-muted">{c.customer.legalName}</div>
+                        <div className={`truncate text-xs ${p.mine ? "font-semibold text-warn" : "text-muted"}`}>{p.mine ? `▶ ${p.text}` : `Pending with: ${p.text}`}</div>
+                      </div>
+                      <StageBadge stage={c.stage} />
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </Card>
         </div>
